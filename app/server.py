@@ -12,7 +12,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import __version__, backup, config, db, deep, douyin, llm, notes, ocr, transcribe
+from . import __version__, backup, config, db, deep, douyin, insights, llm, notes, ocr, transcribe, weekly
 from .worker import Worker, scan_inbox
 
 _DEPS = None
@@ -36,6 +36,7 @@ def deps_status():
 STATIC = Path(__file__).resolve().parent / "static"
 worker: Worker = None
 deep_runner: deep.DeepRunner = None
+insight_runner: insights.InsightRunner = None
 
 
 def open_path(p):
@@ -164,6 +165,8 @@ class Handler(BaseHTTPRequestHandler):
         d = deep_runner.snapshot()
         if d.get("item_id") or d.get("pending"):
             return "正在精读，请等精读完成后再恢复备份"
+        if insight_runner.snapshot().get("pending"):
+            return "正在整理共识观点，请等整理完成后再恢复备份"
         return None
 
     def _local_only(self):
@@ -215,7 +218,28 @@ class Handler(BaseHTTPRequestHandler):
                 "progress": worker.prog.snapshot(
                     max(0, db.stats()["by_status"].get("queued", 0))),
                 "deep": deep_runner.snapshot(),
+                "insights": insight_runner.snapshot(),
             })
+        if path == "/api/graph":
+            return self._json(insights.graph())
+        if path == "/api/insights":
+            return self._json({"categories": insights.categories(), "runner": insight_runner.snapshot()})
+        if path.startswith("/api/insights/"):
+            cat = urllib.parse.unquote(path[len("/api/insights/"):])
+            ins = db.get_insight(cat)
+            if not ins:
+                return self._err("这个分类还没整理过共识观点", 404)
+            titles = {it["id"]: (it.get("note") or {}).get("title") or it.get("title") or "未命名"
+                      for it in db.done_items()}
+            ins["titles"] = {i: titles[i] for i in ins["item_ids"] if i in titles}
+            return self._json(ins)
+        if path == "/api/weekly":
+            return self._json(weekly.report(int(q("offset", "0") or 0)))
+        if path == "/api/weekly/due":
+            # 上一周的周报有内容、而且还没看过 → 学习库里提示一下
+            last = weekly.report(-1)
+            return self._json({"due": last["has_any"] and config.load().get("weekly_seen") != last["week"],
+                               "week": last["week"]})
         if path == "/api/backup":
             try:
                 f, m = backup.create(include_keys=q("keys", "1") == "1")
@@ -330,12 +354,37 @@ class Handler(BaseHTTPRequestHandler):
                         reveal(it["md_path"])
                     else:
                         return self._err("这条还没有生成笔记文件")
+                elif what == "insight":
+                    ins = db.get_insight(str(b.get("category") or ""))
+                    if not ins or not ins.get("md_path") or not Path(ins["md_path"]).exists():
+                        return self._err("还没有生成共识观点文件")
+                    reveal(ins["md_path"])
                 return self._json({"ok": True})
             except Exception as e:
                 return self._err(f"打不开：{e}")
 
+        if path == "/api/insights":
+            cat = str(b.get("category") or "").strip()
+            if not cat:
+                return self._err("缺少分类")
+            if not (config.llm_cfg(config.load(), "deep").get("api_key") or "").strip():
+                return self._err("还没保存 AI Key。请到「设置」填好 Key，点「测试连接」（成功会自动保存）。")
+            insight_runner.submit(cat)
+            return self._json({"ok": True})
+        if path == "/api/weekly/save":
+            try:
+                f = weekly.save_md(int(b.get("offset") or 0))
+                reveal(f)
+            except Exception as e:
+                return self._err(f"保存失败：{e}")
+            return self._json({"path": f})
+        if path == "/api/weekly/seen":
+            config.save({"weekly_seen": str(b.get("week") or "")})
+            return self._json({"ok": True})
+
         if path == "/api/settings":
-            patch = {k: v for k, v in b.items() if k in config.DEFAULTS and k != "tokens_used"}
+            patch = {k: v for k, v in b.items()
+                     if k in config.DEFAULTS and k not in ("tokens_used", "tokens_weekly", "weekly_seen")}
             if "api_key" in patch and not str(patch["api_key"]).strip():
                 patch.pop("api_key")  # 空着表示不修改
             if "deep_api_key" in patch and not str(patch["deep_api_key"]).strip():
@@ -528,6 +577,8 @@ def serve(port=8765, open_browser=True):
     worker = Worker()
     global deep_runner
     deep_runner = deep.DeepRunner(worker.log)
+    global insight_runner
+    insight_runner = insights.InsightRunner(worker.log)
     srv = None
     for p in range(port, port + 20):
         try:

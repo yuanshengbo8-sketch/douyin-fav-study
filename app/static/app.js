@@ -97,6 +97,7 @@ async function refreshState() {
 
 let pollTimer = null;
 let wasDeepBusy = false;
+let lastInsKey = null;
 function startPolling() {
   clearTimeout(pollTimer);
   const tick = async () => {
@@ -115,7 +116,13 @@ function startPolling() {
       }
       wasDeepBusy = busy;
     }
-    const active = STATE?.worker?.busy || STATE?.deep?.item_id;
+    // 共识观点整理完（或失败）时刷新页面
+    const insKey = JSON.stringify([STATE?.insights?.pending, STATE?.insights?.errors]);
+    if (insKey !== lastInsKey) {
+      if (lastInsKey !== null && r.name === "graph" && r.tab === "consensus") renderGraphPage(r.tab, r.category, true);
+      lastInsKey = insKey;
+    }
+    const active = STATE?.worker?.busy || STATE?.deep?.item_id || STATE?.insights?.pending?.length;
     pollTimer = setTimeout(tick, active ? 1000 : 2500);
   };
   pollTimer = setTimeout(tick, 1000);
@@ -128,6 +135,8 @@ function route() {
   if (p[0] === "item") return { name: "item", id: +p[1], tab: p[2] };
   if (p[0] === "process") return { name: "process" };
   if (p[0] === "settings") return { name: "settings" };
+  if (p[0] === "graph") return { name: "graph", tab: p[1] === "consensus" ? "consensus" : "map", category: p.slice(2).join("/") };
+  if (p[0] === "weekly") return { name: "weekly", offset: Math.min(0, parseInt(p[1] || "0", 10) || 0) };
   return { name: "library", category: p[1] === "cat" ? p.slice(2).join("/") : "" };
 }
 
@@ -139,6 +148,8 @@ async function render() {
   if (r.name === "item") return renderItem(r.id, r.tab);
   if (r.name === "process") return renderProcess();
   if (r.name === "settings") return renderSettings();
+  if (r.name === "graph") return renderGraphPage(r.tab, r.category);
+  if (r.name === "weekly") return renderWeekly(r.offset);
 }
 window.addEventListener("hashchange", () => {
   window.scrollTo(0, 0);
@@ -162,6 +173,8 @@ function bannerHtml() {
   const s = STATE.settings;
   if (!s.api_key_set) return `<div class="banner info"><div><b>还没配置 AI。</b> 没有它只能把视频转成文字，生成不了学习笔记。
     用「免费方案」两分钟就能配好，不花钱。</div><span class="spacer"></span><a class="btn sm primary" href="#/settings">去配置 →</a></div>`;
+  if (weeklyDue?.due) return `<div class="banner info"><div><b>上周的学习周报出来了。</b> 看看上周学了什么，这周从哪条开始。</div>
+    <span class="spacer"></span><a class="btn sm primary" href="#/weekly/-1">看周报 →</a></div>`;
   return "";
 }
 
@@ -931,8 +944,10 @@ async function renderSettings() {
 }
 
 /* ---------------------------------------------------------------- 启动 */
+let weeklyDue = null;
 (async () => {
   await refreshState();
+  try { weeklyDue = await api("/api/weekly/due"); $("#navWeekly").hidden = !weeklyDue.due; } catch {}
   if (!location.hash) location.hash = STATE.settings.api_key_set || STATE.stats.total ? "#/library" : "#/settings";
   render();
   startPolling();
@@ -1092,4 +1107,314 @@ function skeletonItem() {
       <div class="sk sk-line w30"></div><div class="sk sk-block" style="height:110px;margin-top:34px"></div>
       <div class="sk sk-block" style="height:220px"></div></div>
     <div><div class="sk sk-block" style="aspect-ratio:16/10;height:auto"></div><div class="sk sk-line"></div><div class="sk sk-line w60"></div></div></div>`;
+}
+
+/* ---------------------------------------------------------------- 知识网络：图谱 + 共识观点 */
+Object.assign(ICONS, {
+  flame: '<path d="M8.5 14.5A2.5 2.5 0 0 0 11 12c0-1.38-.5-2-1-3-1.07-2.14-.22-4.05 2-6 .5 2.5 2 4.9 4 6.5 2 1.6 3 3.5 3 5.5a7 7 0 1 1-14 0c0-1.15.43-2.29 1-3a2.5 2.5 0 0 0 2.5 2.5z"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>',
+  diamond: '<path d="M12 2.7 21.3 12 12 21.3 2.7 12z"/>',
+});
+
+let graphData = null, graphShowViews = true, graphSel = null;
+let gView = { x: 0, y: 0, k: 1 };
+
+async function renderGraphPage(tab, category, soft = false) {
+  const tabs = `<div class="seg" id="gTabs">
+      <a href="#/graph" class="${tab === "map" ? "on" : ""}">图谱</a>
+      <a href="#/graph/consensus" class="${tab === "consensus" ? "on" : ""}">共识观点</a></div>`;
+  const headHtml = `<div class="head"><div><h1>知识网络</h1>
+      <div class="muted">${tab === "map" ? "有共同关键词（标签、概念、工具）的笔记连成线，线越粗关联越多" : "让 AI 把一个分类里的多条笔记放在一起看：哪些观点被多条视频互相印证，哪些说法不一致"}</div></div>
+      <div class="spacer"></div>${tabs}</div>`;
+  if (tab === "consensus") return renderConsensus(headHtml, category, soft);
+  view.innerHTML = headHtml + `<div class="card graph-card"><div class="sk sk-block" style="height:420px;margin:0"></div></div>`;
+  graphData = await api("/api/graph");
+  drawGraph(headHtml);
+}
+
+function drawGraph(headHtml) {
+  const g = graphData;
+  if (g.nodes.length < 2 || (!g.links.length && !g.views.length)) {
+    view.innerHTML = headHtml + `<div class="card">${emptyHtml("link", "笔记之间还没有连起来",
+      g.nodes.length < 2 ? "学习库里至少要有两条笔记。" : "现在的笔记之间还没有共同的标签、概念或工具。笔记多起来以后，这里会自动连成网。",
+      `<a class="btn" href="#/process">${ico("plus")}添加更多笔记</a>`)}</div>`;
+    return;
+  }
+  const cats = [...new Set(g.nodes.map((n) => n.category))];
+  view.innerHTML = headHtml + `
+    <div class="graph-wrap">
+      <div class="card graph-card">
+        <div class="row graph-tools">
+          <div class="legend">${cats.map((c) => `<span><i class="dot cat-${catColor(c)}"></i>${esc(c)}</span>`).join("")}
+            ${g.views.length ? `<span><i class="gdia"></i>共识观点</span>` : ""}</div>
+          <span class="spacer"></span>
+          ${g.views.length ? `<label class="check small"><input type="checkbox" id="gViews" ${graphShowViews ? "checked" : ""}> 显示共识观点</label>` : ""}
+          <button class="btn sm" id="gFit">复位</button>
+        </div>
+        <svg id="gSvg" class="gsvg" role="img" aria-label="笔记关系图"></svg>
+        <div class="muted small graph-hint">滚轮缩放，拖动空白处移动；点一个圆点看它和谁有关，双击打开笔记</div>
+      </div>
+      <aside class="card graph-side" id="gSide"></aside>
+    </div>`;
+  $("#gViews") && ($("#gViews").onchange = (e) => { graphShowViews = e.target.checked; layoutAndPaint(); });
+  $("#gFit").onclick = () => { gView = { x: 0, y: 0, k: 1 }; applyView(); };
+  layoutAndPaint();
+}
+
+function applyView() { const z = $("#gZoom"); if (z) z.setAttribute("transform", `translate(${gView.x},${gView.y}) scale(${gView.k})`); }
+
+/* 简单的力导向布局：同步算好再画（几百个点以内很快） */
+function forceLayout(nodes, links, W, H) {
+  const byCat = {}; nodes.forEach((n) => (byCat[n.cat] ||= []).push(n));
+  const cs = Object.keys(byCat);
+  cs.forEach((c, ci) => {  // 同一分类先放在一起，布局收敛得快
+    const a0 = (2 * Math.PI * ci) / cs.length, r = Math.min(W, H) * 0.28;
+    byCat[c].forEach((n, i) => {
+      const a = a0 + i * 0.9;
+      n.x = W / 2 + Math.cos(a0) * r + Math.cos(a) * 18 * Math.sqrt(i + 1);
+      n.y = H / 2 + Math.sin(a0) * r + Math.sin(a) * 18 * Math.sqrt(i + 1);
+      n.vx = n.vy = 0;
+    });
+  });
+  // Fruchterman–Reingold：点之间互相排斥、连线把两端拉近，每步移动距离逐渐变小（降温）
+  const N = nodes.length, iters = N > 300 ? 150 : 300;
+  const k = Math.min(90, Math.sqrt((W * H) / Math.max(N, 1)) * 0.5);
+  const mx = 64, my = 28;  // 留出标签的位置
+  let temp = W / 8;
+  for (let it = 0; it < iters; it++) {
+    for (const n of nodes) n.vx = n.vy = 0;
+    for (let i = 0; i < N; i++) {
+      const a = nodes[i];
+      for (let j = i + 1; j < N; j++) {
+        const b = nodes[j], dx = a.x - b.x, dy = a.y - b.y, d = Math.sqrt(dx * dx + dy * dy) || 0.1;
+        const f = (k * k) / d / d;
+        a.vx += dx * f; a.vy += dy * f; b.vx -= dx * f; b.vy -= dy * f;
+      }
+    }
+    for (const l of links) {
+      const dx = l.t.x - l.s.x, dy = l.t.y - l.s.y, d = Math.sqrt(dx * dx + dy * dy) || 0.1;
+      const f = (d / (k * k)) * (l.view ? 6 : 0.7 + Math.min(l.w, 4) * 0.2);  // 共同关键词越多拉得越紧；共识观点贴着它的笔记
+      l.s.vx += dx * f; l.s.vy += dy * f; l.t.vx -= dx * f; l.t.vy -= dy * f;
+    }
+    for (const n of nodes) {
+      n.vx += (W / 2 - n.x) * 0.06; n.vy += (H / 2 - n.y) * 0.06;  // 轻轻拉向中间，没连线的点不会飘走
+      const len = Math.sqrt(n.vx * n.vx + n.vy * n.vy) || 1, step = Math.min(len, temp);
+      n.x = Math.max(mx, Math.min(W - mx, n.x + (n.vx / len) * step));
+      n.y = Math.max(my, Math.min(H - my, n.y + (n.vy / len) * step));
+    }
+    temp = Math.max(0.5, temp * 0.975);
+  }
+}
+
+function layoutAndPaint() {
+  const svg = $("#gSvg"); if (!svg) return;
+  // 画布用实际像素大小，文字不会被缩得看不清
+  const W = Math.max(300, Math.round(svg.clientWidth || 800));
+  const H = W < 600 ? Math.round(W * 1.15) : Math.max(420, Math.min(720, Math.round(W * 0.62)));
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const nodes = graphData.nodes.map((n) => ({ ...n, key: "n" + n.id, cat: n.category }));
+  const byKey = new Map(nodes.map((n) => [n.key, n]));
+  const links = graphData.links.map((l) => ({ ...l, s: byKey.get("n" + l.source), t: byKey.get("n" + l.target) }));
+  if (graphShowViews) for (const v of graphData.views) {
+    const vn = { ...v, key: v.id, cat: v.category, isView: true };
+    nodes.push(vn); byKey.set(v.id, vn);
+    for (const id of v.items) if (byKey.get("n" + id)) links.push({ s: vn, t: byKey.get("n" + id), view: true, w: 1 });
+  }
+  forceLayout(nodes, links, W, H);
+  const nbr = new Map(nodes.map((n) => [n.key, new Set()]));
+  links.forEach((l) => { nbr.get(l.s.key).add(l.t.key); nbr.get(l.t.key).add(l.s.key); });
+  const rad = (n) => 5 + Math.min(n.deg || 0, 8) * 1.1;
+  const pos = (n) => `translate(${n.x.toFixed(1)},${n.y.toFixed(1)})`;
+  svg.innerHTML = `<g id="gZoom">
+    ${links.map((l) => `<line class="glink${l.view ? " gl-view" : ""}" data-a="${esc(l.s.key)}" data-b="${esc(l.t.key)}" x1="${l.s.x.toFixed(1)}" y1="${l.s.y.toFixed(1)}" x2="${l.t.x.toFixed(1)}" y2="${l.t.y.toFixed(1)}" stroke-width="${l.view ? 1.2 : (0.8 + Math.min(l.w, 5) * 0.7).toFixed(1)}"/>`).join("")}
+    ${nodes.map((n) => n.isView
+      ? `<g class="gnode gn-view" data-k="${esc(n.key)}" transform="${pos(n)}" tabindex="0" role="button" aria-label="共识观点：${esc(n.view)}">
+          <rect x="-7" y="-7" width="14" height="14" rx="2.5" transform="rotate(45)"/><title>${esc(n.view)}</title></g>`
+      : `<g class="gnode cat-${catColor(n.cat)}${n.learned ? " learned" : ""}" data-k="${n.key}" transform="${pos(n)}" tabindex="0" role="button" aria-label="${esc(n.title)}">
+          <circle r="${rad(n)}"/>${(n.deg || 0) >= 3 ? `<text y="${rad(n) + 13}">${esc(n.title.slice(0, 12))}</text>` : ""}<title>${esc(n.title)}</title></g>`).join("")}
+  </g>`;
+  applyView();
+
+  const focus = (key) => {
+    svg.classList.toggle("focus", !!key);
+    const near = key ? nbr.get(key) : new Set();
+    $$(".gnode", svg).forEach((el) => el.classList.toggle("hl", !!key && (el.dataset.k === key || near.has(el.dataset.k))));
+    $$(".glink", svg).forEach((el) => el.classList.toggle("hl", !!key && (el.dataset.a === key || el.dataset.b === key)));
+  };
+  const select = (key) => { graphSel = key; focus(key); renderGraphSide(key ? byKey.get(key) : null, byKey, links); };
+  $$(".gnode", svg).forEach((el) => {
+    el.addEventListener("mouseenter", () => { if (!graphSel) focus(el.dataset.k); });
+    el.addEventListener("mouseleave", () => { if (!graphSel) focus(null); });
+    el.addEventListener("click", (e) => { e.stopPropagation(); select(graphSel === el.dataset.k ? null : el.dataset.k); });
+    el.addEventListener("keydown", (e) => { if (e.key === "Enter") select(el.dataset.k); });
+    el.addEventListener("dblclick", () => { const n = byKey.get(el.dataset.k); if (!n.isView) location.hash = "#/item/" + n.id; });
+  });
+  // 拖动空白处平移，滚轮缩放
+  let drag = null;
+  svg.onpointerdown = (e) => { if (e.target.closest(".gnode")) return; drag = { x: e.clientX, y: e.clientY, vx: gView.x, vy: gView.y, moved: false }; svg.setPointerCapture(e.pointerId); };
+  svg.onpointermove = (e) => {
+    if (!drag) return;
+    const s = W / svg.clientWidth;
+    gView.x = drag.vx + (e.clientX - drag.x) * s; gView.y = drag.vy + (e.clientY - drag.y) * s;
+    drag.moved ||= Math.abs(e.clientX - drag.x) + Math.abs(e.clientY - drag.y) > 4; applyView();
+  };
+  svg.onpointerup = () => { if (drag && !drag.moved) select(null); drag = null; };
+  svg.onwheel = (e) => {
+    e.preventDefault();
+    const rect = svg.getBoundingClientRect(), s = W / rect.width;
+    const px = (e.clientX - rect.left) * s, py = (e.clientY - rect.top) * s;
+    const k2 = Math.max(0.4, Math.min(4, gView.k * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+    gView.x = px - ((px - gView.x) * k2) / gView.k; gView.y = py - ((py - gView.y) * k2) / gView.k; gView.k = k2; applyView();
+  };
+  select(graphSel && byKey.has(graphSel) ? graphSel : null);
+}
+
+function renderGraphSide(n, byKey, links) {
+  const side = $("#gSide"); if (!side) return;
+  const g = graphData;
+  if (!n) {
+    const top = [...g.nodes].sort((a, b) => b.deg - a.deg).slice(0, 5).filter((x) => x.deg);
+    side.innerHTML = `<h2>概况</h2>
+      <div class="gstats"><div><b>${g.nodes.length}</b><span>条笔记</span></div><div><b>${g.links.length}</b><span>条关联</span></div><div><b>${g.views.length}</b><span>个共识</span></div></div>
+      ${top.length ? `<h3>关联最多的笔记</h3><ol class="glist">${top.map((x) => `<li><a href="#/item/${x.id}">${esc(x.title)}</a><span class="muted small"> · ${x.deg} 条</span></li>`).join("")}</ol>` : ""}
+      ${g.views.length ? "" : `<p class="muted small">到「共识观点」里整理一个分类，图里会多出菱形的共识观点，连着支持它的几条笔记。</p>`}`;
+    return;
+  }
+  if (n.isView) {
+    side.innerHTML = `<div class="small muted">共识观点 · ${esc(n.category)}</div>
+      <h2 class="gside-title">${esc(n.view)}</h2>
+      <h3>${n.items.length} 条视频都这么说</h3>
+      <ul class="glist">${n.items.map((id) => byKey.get("n" + id)).filter(Boolean).map((x) => `<li><a href="#/item/${x.id}">${esc(x.title)}</a></li>`).join("")}</ul>
+      <a class="btn sm" href="#/graph/consensus/${encodeURIComponent(n.category)}">看完整整理 →</a>`;
+    return;
+  }
+  const rel = links.filter((l) => !l.view && (l.s.key === n.key || l.t.key === n.key))
+    .map((l) => ({ other: l.s.key === n.key ? l.t : l.s, shared: l.shared || [], w: l.w })).sort((a, b) => b.w - a.w);
+  const views = links.filter((l) => l.view && l.t.key === n.key).map((l) => l.s);
+  side.innerHTML = `<div class="row" style="gap:6px">${catChip(n.category)}${n.learned ? `<span class="chip teal">${ico("check", "ic sm")}已学</span>` : ""}</div>
+    <h2 class="gside-title">${esc(n.title)}</h2>
+    <a class="btn sm primary" href="#/item/${n.id}">打开笔记</a>
+    ${views.length ? `<h3>支持的共识观点</h3><ul class="glist">${views.map((v) => `<li>${esc(v.view)}</li>`).join("")}</ul>` : ""}
+    <h3>${rel.length ? `和 ${rel.length} 条笔记有关` : "暂时没有关联的笔记"}</h3>
+    <ul class="glist">${rel.map((x) => `<li><a href="#/item/${x.other.id}">${esc(x.other.title)}</a>
+      <div class="muted small">共同：${x.shared.map(esc).join("、")}</div></li>`).join("")}</ul>`;
+}
+
+async function renderConsensus(headHtml, category, soft) {
+  if (category) return renderConsensusDetail(headHtml, category, soft);
+  if (!soft) view.innerHTML = headHtml + `<div class="sk sk-block" style="height:220px"></div>`;
+  const r = await api("/api/insights");
+  const ins = r.runner || {}, keyOk = STATE.settings.api_key_set;
+  view.innerHTML = headHtml + `
+    ${keyOk ? "" : `<div class="banner info"><div>整理共识观点要用 AI，先到设置里配好 AI Key。</div><span class="spacer"></span><a class="btn sm primary" href="#/settings">去配置 →</a></div>`}
+    ${r.categories.length ? `<div class="cgrid">${r.categories.map((c) => {
+      const running = ins.category === c.category, queued = !running && (ins.pending || []).includes(c.category);
+      const err = (ins.errors || {})[c.category];
+      const status = running ? `<span class="chip teal">整理中…</span>`
+        : queued ? `<span class="chip gray">排队中</span>`
+        : c.done ? `<span class="chip teal">${c.consensus} 条共识</span>${c.new ? `<span class="chip warn">新增 ${c.new} 条笔记</span>` : ""}`
+        : `<span class="chip gray">未整理</span>`;
+      const can = c.n >= 2 && keyOk && !running && !queued;
+      return `<div class="card ccard">
+        <div class="row"><i class="dot cat-${catColor(c.category)}"></i><b>${esc(c.category)}</b><span class="spacer"></span><span class="muted small">${c.n} 条笔记</span></div>
+        <div class="row" style="gap:6px;flex-wrap:wrap">${status}</div>
+        ${err ? `<div class="small" style="color:var(--bad)">${esc(err)}</div>` : ""}
+        <div class="row ccard-foot">
+          ${c.done ? `<a class="btn sm primary" href="#/graph/consensus/${encodeURIComponent(c.category)}">查看</a>` : ""}
+          <span class="spacer"></span>
+          ${c.n < 2 ? `<span class="muted small">至少 2 条笔记才能比较</span>`
+            : `<button class="btn sm ${c.done ? "ghost" : ""}" data-build="${esc(c.category)}" ${can ? "" : "disabled"}>${c.done ? "重新整理" : "整理共识"}</button>`}
+        </div></div>`; }).join("")}</div>
+      <p class="muted small" style="margin-top:14px">每整理一个分类调用一次 AI（用「设置 → 精读」里的模型）。结果也会保存成 Markdown，放在笔记文件夹的「_共识观点」里，在 Obsidian 里能点链接跳回原笔记。</p>`
+    : `<div class="card">${emptyHtml("book", "学习库还是空的", "先添加几条笔记，再来这里找它们之间的共识。")}</div>`}`;
+  $$("[data-build]").forEach((b) => b.onclick = async () => {
+    try { await api("/api/insights", { category: b.dataset.build }); toast("开始整理，一般需要半分钟到两分钟"); await refreshState(); renderConsensus(headHtml, "", true); }
+    catch (e) { toast(e.message, 4000); }
+  });
+}
+
+async function renderConsensusDetail(headHtml, category, soft) {
+  if (!soft) view.innerHTML = headHtml + `<div class="sk sk-block" style="height:320px"></div>`;
+  let ins;
+  try { ins = await api("/api/insights/" + encodeURIComponent(category)); }
+  catch (e) { view.innerHTML = headHtml + `<div class="card">${emptyHtml("search", esc(e.message), "", `<a class="btn" href="#/graph/consensus">← 返回分类列表</a>`)}</div>`; return; }
+  const d = ins.data, T = ins.titles || {};
+  const busy = STATE.insights?.category === category || (STATE.insights?.pending || []).includes(category);
+  const src = (ids) => ids.map((id) => T[id] ? `<a class="src" href="#/item/${id}">${esc(T[id])}</a>` : "").join("");
+  view.innerHTML = headHtml + `
+    <a class="back" href="#/graph/consensus">← 全部分类</a>
+    <div class="card cdetail">
+      <div class="row"><h2 style="margin:0"><i class="dot big-dot cat-${catColor(category)}"></i>${esc(category)}</h2><span class="spacer"></span>
+        <button class="btn sm" id="cReveal">${ico("folder")}在文件夹中显示</button>
+        <button class="btn sm ghost" id="cRedo" ${busy ? "disabled" : ""}>${busy ? "整理中…" : "重新整理"}</button></div>
+      <div class="muted small">由 ${esc(ins.model || "")} 从 ${ins.item_ids.length} 条笔记中整理 · ${new Date(ins.created_at * 1000).toLocaleString("zh-CN", { hour12: false })}</div>
+      ${d.overview ? `<div class="summary" style="margin-top:14px">${esc(d.overview)}</div>` : ""}
+    </div>
+    <section><h2>共识观点 <span class="muted small">多条视频互相印证</span></h2>
+      ${d.consensus.length ? `<ol class="cons-list">${d.consensus.map((c) => `<li class="card">
+        <div class="cons-head"><b>${esc(c.view)}</b><span class="chip teal">${c.item_ids.length} 条视频</span></div>
+        ${c.detail ? `<p>${esc(c.detail)}</p>` : ""}
+        <div class="srcs">${src(c.item_ids)}</div></li>`).join("")}</ol>`
+      : `<p class="muted">这个分类的笔记之间没有找到被多条视频共同支持的观点。笔记多起来以后再整理一次试试。</p>`}
+    </section>
+    ${d.conflicts.length ? `<section><h2>说法不一致的地方</h2>${d.conflicts.map((c) => `<div class="card conflict">
+      <b>${esc(c.topic)}</b>
+      <div class="sides">${c.sides.map((s) => `<div class="side-v"><div>${esc(s.view)}</div><div class="srcs">${src(s.item_ids)}</div></div>`).join("")}</div>
+      ${c.advice ? `<div class="advice">${ico("bulb")}<span>${esc(c.advice)}</span></div>` : ""}</div>`).join("")}</section>` : ""}`;
+  $("#cReveal").onclick = () => api("/api/open", { what: "insight", category }).catch((e) => toast(e.message));
+  $("#cRedo").onclick = async () => {
+    try { await api("/api/insights", { category }); toast("开始重新整理"); await refreshState(); renderConsensusDetail(headHtml, category, true); }
+    catch (e) { toast(e.message, 4000); }
+  };
+}
+
+/* ---------------------------------------------------------------- 每周周报 */
+async function renderWeekly(offset) {
+  view.innerHTML = `<div class="sk sk-h1"></div><div class="sk sk-block" style="height:140px"></div><div class="sk sk-block" style="height:260px"></div>`;
+  const r = await api("/api/weekly?offset=" + offset);
+  if (weeklyDue?.due && r.week === weeklyDue.week) {  // 看过了，不再提示
+    weeklyDue.due = false; $("#navWeekly").hidden = true;
+    api("/api/weekly/seen", { week: r.week }).catch(() => {});
+  }
+  const tile = (n, label, sub = "") => `<div class="wtile"><b>${n}</b><span>${label}</span>${sub ? `<em>${sub}</em>` : ""}</div>`;
+  const maxCat = Math.max(1, ...r.categories.map((c) => c.n));
+  const list = (items) => `<ul class="wlist">${items.map((it) => `<li><i class="dot cat-${catColor(it.category)}"></i><a href="#/item/${it.id}">${esc(it.title)}</a></li>`).join("")}</ul>`;
+  const cheer = r.streak >= 4 ? "已经养成习惯了，继续保持" : r.streak >= 2 ? "连着好几周了，别断" : r.streak === 1 ? "开了个好头" : "这周学一条，就能开始计数";
+  view.innerHTML = `
+    <div class="head"><div><h1>学习周报</h1><div class="muted">${esc(r.label)}${r.is_current ? " · 本周（还在进行中）" : ""}</div></div>
+      <div class="spacer"></div>
+      <div class="row week-nav">
+        <a class="btn sm" href="#/weekly/${r.offset - 1}">‹ 上一周</a>
+        ${r.is_current ? "" : `<a class="btn sm" href="#/weekly">本周</a>`}
+        ${r.is_current ? `<button class="btn sm" disabled>下一周 ›</button>` : `<a class="btn sm" href="#/weekly/${r.offset + 1}">下一周 ›</a>`}
+      </div></div>
+    <div class="card streak-card">
+      <div class="streak-ic">${ico("flame")}</div>
+      <div><div class="streak-n">连续学习 <b>${r.streak}</b> 周</div><div class="muted small">${cheer}。标记学会、精读、做测验、回答检查题都算学习。</div></div>
+    </div>
+    ${r.has_any ? `
+    <div class="wtiles">
+      ${tile(r.new, "条新笔记")}
+      ${tile(r.learned, "条学会")}
+      ${tile(r.deep, "条精读")}
+      ${tile(r.quizzes, "次测验", r.quiz_accuracy != null ? `正确率 ${r.quiz_accuracy}%` : "")}
+      ${tile(r.checks + r.asks, "次答题和提问", r.checks || r.asks ? `检查题 ${r.checks} · 问老师 ${r.asks}` : "")}
+      ${tile(r.tokens.toLocaleString(), "AI tokens", r.tokens ? "" : "从这个版本开始统计")}
+    </div>
+    <div class="wgrid">
+      ${r.categories.length ? `<div class="card"><h2>新笔记都在学什么</h2>
+        <div class="wbars">${r.categories.map((c) => `<div class="wbar"><span class="wlabel">${esc(c.category)}</span>
+          <span class="wtrack"><i class="cat-${catColor(c.category)}" style="width:${Math.round((c.n / maxCat) * 100)}%"></i></span><b>${c.n}</b></div>`).join("")}</div>
+        ${r.top_tags.length ? `<h3>高频关键词</h3><div class="row" style="gap:6px;flex-wrap:wrap">${r.top_tags.map((t) => `<span class="chip gray">${esc(t)}</span>`).join("")}</div>` : ""}
+      </div>` : ""}
+      ${r.learned_items.length ? `<div class="card"><h2>这周学会了</h2>${list(r.learned_items)}</div>` : ""}
+      ${r.insights.length ? `<div class="card"><h2>整理了共识观点</h2><ul class="wlist">${r.insights.map((i) => `<li><i class="dot cat-${catColor(i.category)}"></i><a href="#/graph/consensus/${encodeURIComponent(i.category)}">${esc(i.category)}</a><span class="muted small"> · ${i.consensus} 条</span></li>`).join("")}</ul></div>` : ""}
+    </div>` : `<div class="card">${emptyHtml("coffee", r.is_current ? "这周还没开始" : "这周没有学习记录", r.is_current ? "随便挑一条笔记学一下，周报就会热闹起来。" : "休息一下也没关系。")}</div>`}
+    ${r.suggest.length ? `<div class="card" style="margin-top:16px"><div class="row"><h2 style="margin:0">接下来先学这几条</h2><span class="spacer"></span><span class="muted small">还有 ${r.unlearned} 条没学，这几条收进来最久</span></div>${list(r.suggest)}</div>` : ""}
+    <div class="row" style="margin-top:18px"><span class="spacer"></span>
+      <button class="btn" id="wSave">${ico("download")}保存为 Markdown 到笔记文件夹</button></div>`;
+  $("#wSave").onclick = async () => {
+    try { await api("/api/weekly/save", { offset: r.offset }); toast("已保存到「_周报」文件夹"); }
+    catch (e) { toast(e.message, 4000); }
+  };
 }

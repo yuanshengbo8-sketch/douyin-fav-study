@@ -1,0 +1,35 @@
+# 要启用：把这个文件移到 .github/workflows/ 里再推送（需要 GitHub 的 workflow 权限）。
+# 发布新版本（GitHub Release）时，自动打包 Windows 一键安装包并上传到这个 Release。
+# 也可以在 Actions 页面手动运行，安装包会出现在运行结果的 Artifacts 里。
+name: Windows 安装包
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: 安装 Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+      - name: 打包
+        shell: pwsh
+        run: ./installer/build_windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-installer
+          path: dist/*.exe
+      - name: 上传到 Release
+        if: github.event_name == 'release'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" (Get-ChildItem dist/*.exe).FullName --clobber

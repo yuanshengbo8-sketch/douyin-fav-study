@@ -6,7 +6,7 @@
 Turn your saved Douyin videos &amp; image posts into local study notes you can learn, quiz and review.</p>
 
 <p align="center">
-<img alt="version" src="https://img.shields.io/badge/version-1.0.3-0071e3">
+<img alt="version" src="https://img.shields.io/badge/version-1.0.4-0071e3">
 <img alt="platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-555">
 <img alt="python" src="https://img.shields.io/badge/python-3.11%20%7C%203.12-3776ab">
 <img alt="license" src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-orange">
@@ -37,6 +37,8 @@ The full 3-minute walkthrough is attached to the [v1.0.1 release](https://github
 | **本机转写**：苹果芯片 Mac 用 mlx-whisper 加速，其他电脑用 faster-whisper；有字幕直接用字幕 | **AI 提炼**：总结、核心观点、照着做、工具、概念、自测题，自动分类 |
 | **带我精读**：核心结论、思维导图、带时间戳的大纲、“你真的懂了吗”追问、10 道测验、Anki 卡片、问老师 | **进度条和剩余时间**：按你电脑的实际速度估算 |
 | **免费方案**：智谱 GLM / 硅基流动 / Gemini，粘贴 Key 一键配置 | **备份与恢复**：一个 zip 搬家，恢复前自动留底 |
+| **知识网络**：有共同关键词的笔记连成图谱；AI 找出多条视频互相印证的共识观点和说法不一致的地方 | **每周周报**：新增、学会、精读、测验、AI 消耗，连续学习几周 |
+| **Windows 一键安装包**：内置 Python 和全部组件，双击安装就能用 | |
 
 <table>
 <tr>
@@ -54,6 +56,12 @@ The full 3-minute walkthrough is attached to the [v1.0.1 release](https://github
 </table>
 
 ## 快速开始 · Quick start
+
+**Windows 最省事：** 到 [Releases](../../releases) 下载 `DouyinFavStudy-Setup-版本号.exe`，双击安装，开始菜单和桌面会有「收藏学习台」。安装包里已经带好 Python 和全部组件，不用自己装 Python，也不需要管理员权限。以后升级再装一次新版本就行，笔记和设置不会丢。
+
+> 之前用脚本安装过的老用户：先在旧版「设置 → 备份与恢复」下载完整备份，装好新版后在同一个地方恢复，数据就搬过来了。
+
+**Mac，或者想用脚本安装：**
 
 1. 安装 **Python 3.12**（不要装 3.13 及以上，部分组件还不支持；Windows 安装时勾选「Add python.exe to PATH」）
 2. 下载本仓库（右上角 **Code → Download ZIP**，或到 [Releases](../../releases) 下载），解压
@@ -181,6 +189,24 @@ The full 3-minute walkthrough is attached to the [v1.0.1 release](https://github
 
 **精读可以用更强的模型**：设置 → 精读，取消「和 AI 提炼用同一个模型」，就能单独选 Claude 等。日常批量提炼用便宜的 DeepSeek，精读用 Claude，比较省钱。
 
+### 知识网络：图谱和共识观点
+
+收藏多了，很多视频其实在讲同一件事。左侧「知识网络」把笔记放在一起看：
+
+- **图谱**：两条笔记有共同的标签、概念或工具，就连一条线，共同的越多线越粗。点一个圆点，会高亮和它有关的笔记，右边列出它们共同提到了什么；双击打开笔记。在本机计算，不花钱
+- **共识观点**：选一个分类点「整理共识」，AI 会把这个分类的笔记放在一起读，找出**被两条以上视频互相印证的观点**（每条都标出是哪几条视频说的，点一下跳过去），以及**说法不一致的地方**和怎么看待。每个分类调用一次 AI，用「设置 → 精读」里的模型
+- 整理好的共识观点会以菱形出现在图谱里，连着支持它的笔记；也会保存成 Markdown，放在笔记文件夹的 `_共识观点/` 里，Obsidian 里能点链接跳回原笔记
+- 分类里加了新笔记，卡片上会提示「新增 N 条笔记」，再整理一次就行
+
+### 每周周报
+
+左侧「每周周报」统计这一周（周一到周日）：新增几条笔记、学会几条、精读几条、测验正确率、回答检查题和问老师的次数、AI 用了多少 tokens，新笔记都在学哪些分类、高频关键词，以及「接下来先学这几条」。
+
+- **连续学习周数**：每周至少学一次（标记学会、精读、做测验、回答检查题都算）就加一周
+- 新的一周开始后，学习库顶部会提示「上周的学习周报出来了」
+- 可以翻看以前的周，也可以「保存为 Markdown」到笔记文件夹的 `_周报/` 里
+- 全部在本机统计，不调用 AI
+
 ---
 
 ## 五、自动跳过和防出错机制
@@ -228,8 +254,11 @@ The full 3-minute walkthrough is attached to the [v1.0.1 release](https://github
 
 ```
 app/            程序代码（Python 后端 + 网页界面）
+installer/      Windows 安装包的打包脚本（见下面「自己打包安装包」）
 data/           你的数据（首次运行自动创建）
   知识库/        Markdown 笔记（可以用 Obsidian 打开）
+    _共识观点/    每个分类整理出的共识观点
+    _周报/        保存下来的学习周报
   inbox/        收件箱：放入本地视频
   library.db    处理进度和学习记录
   settings.json 设置（包括你的 AI Key）
@@ -238,6 +267,20 @@ data/           你的数据（首次运行自动创建）
 ```
 
 **注意：** `data/settings.json` 里存着你的 AI Key，`data/browser/` 里存着你的抖音登录状态。如果要把这个软件分享给别人，**一定要先删掉 `data` 文件夹**。
+
+用安装包装的版本，程序和 `data` 都在 `%LOCALAPPDATA%\Programs\DouyinFavStudy\`。卸载时会问要不要一起删掉数据，默认保留。
+
+### 自己打包安装包
+
+装好 [Inno Setup 6](https://jrsoftware.org/isdl.php)，在仓库根目录运行
+
+```
+powershell -ExecutionPolicy Bypass -File installer\build_windows.ps1
+```
+
+脚本会下载官方嵌入版 Python 3.12、装好全部组件、编译出 `dist\DouyinFavStudy-Setup-版本号.exe`。国内网络慢可以加 `-PipIndex https://pypi.tuna.tsinghua.edu.cn/simple`。
+
+想让 GitHub 在每次发布 Release 时自动打包：把 `installer/windows-installer.yml` 移到 `.github/workflows/` 里再推送（推送 workflow 文件需要 GitHub 账号授权 `workflow` 权限，命令行用户先运行 `gh auth refresh -s workflow`）。
 
 ---
 
