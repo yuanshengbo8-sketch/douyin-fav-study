@@ -321,7 +321,7 @@ async function renderItem(id, tab) {
           ${n.difficulty ? `<span class="chip gray">${esc(n.difficulty)}</span>` : ""}
           ${(n.tags || []).map((t) => `<span class="muted">#${esc(t)}</span>`).join(" ")}
         </div>
-        ${it.title && it.title !== n.title && it.source !== "paste" ? `<div class="muted small" style="margin-top:-8px">原标题：${esc(it.title)}</div>` : ""}
+        ${it.title && it.title !== n.title && it.source !== "paste" ? `<div class="muted small orig-title" style="margin-top:-8px" title="点击展开 / 收起">原标题：${esc(it.title)}</div>` : ""}
         ${it.reason ? `<div class="banner warn" style="margin-top:14px">${esc(it.reason)}</div>` : ""}
         <div class="tabs itabs" id="itabs">${tabs.map(([k, l]) => `<button data-t="${k}" class="${itemTab === k ? "on" : ""}">${l}</button>`).join("")}</div>
         <div id="tabBody"></div>
@@ -486,7 +486,7 @@ function renderDeepTab(el) {
           <div class="hint-box" hidden>${ico("bulb")}${esc(q.hint)}</div>
           <div class="key-box" hidden>${ico("eye")}${esc(q.key)}</div>
           <textarea rows="3" placeholder="用自己的话写下你的理解……">${esc(c?.answer || "")}</textarea>
-          <div class="row" style="margin-top:8px"><span class="spacer"></span><button class="btn sm primary" data-submit>${c ? "再答一次" : "提交给老师"}</button></div>
+          <div class="row" style="margin-top:8px"><span class="spacer"></span><button class="btn sm" data-submit>${c ? "再答一次" : "提交给老师"}</button></div>
           <div class="feedback" ${c ? "" : "hidden"}>${c ? mdLite(c.feedback) : ""}</div>
         </div>`; }).join("")}</section>` : ""}
 
@@ -517,6 +517,10 @@ function renderDeepTab(el) {
   $$(".cq", el).forEach((card) => {
     const i = +card.dataset.i;
     $("[data-hint]", card).onclick = () => { $(".hint-box", card).hidden = false; };
+    // 只有写了回答，「提交」才变成主按钮：一页里不会同时有六个蓝按钮
+    const ta = $("textarea", card), sb = $("[data-submit]", card);
+    const syncBtn = () => sb.classList.toggle("primary", !!ta.value.trim() && !curItem.chat?.checks?.[i]);
+    ta.addEventListener("input", syncBtn); syncBtn();
     $("[data-key]", card) && ($("[data-key]", card).onclick = () => { $(".key-box", card).hidden = false; });
     $("[data-submit]", card).onclick = async (e) => {
       const ans = $("textarea", card).value.trim();
@@ -594,6 +598,8 @@ async function copyPrompt() {
 function openAdd() { $("#addModal").hidden = false; setTimeout(() => $("#addText").focus(), 30); }
 $$("#addModal [data-close]").forEach((b) => b.addEventListener("click", () => ($("#addModal").hidden = true)));
 $("#addModal").addEventListener("click", (e) => { if (e.target.id === "addModal") e.target.hidden = true; });
+// 原标题点一下展开 / 收起
+document.addEventListener("click", (e) => { const o = e.target.closest(".orig-title"); if (o) o.classList.toggle("open"); });
 $("#addSubmit").onclick = async () => {
   const text = $("#addText").value;
   try {
@@ -633,7 +639,7 @@ async function renderProcess() {
         <p class="muted small">链接解析不了时的备用办法：把视频文件（mp4 / mov / mp3 等）放进「收件箱」文件夹，再点扫描。原文件不会被删除。</p>
         <div class="inbox-box"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M3 13h5l1.5 3h5L16 13h5"/><path d="M5.5 5h13L21 13v6H3v-6z"/></svg>
           <span class="muted small">收件箱文件夹</span></div>
-        <div class="row" style="margin-top:12px"><span class="spacer"></span><button class="btn" id="inboxOpen">打开收件箱文件夹</button><button class="btn primary" id="inboxScan">扫描并处理</button></div>
+        <div class="row" style="margin-top:12px"><span class="spacer"></span><button class="btn" id="inboxOpen">打开收件箱文件夹</button><button class="btn" id="inboxScan">扫描并处理</button></div>
       </div>
     </div>
     <div class="card status-card" id="statusCard" style="margin-bottom:20px"></div>
@@ -1073,7 +1079,7 @@ function renderFreeSteps() {
 function emptyHtml(icon, title, desc, actions = "") {
   return `<div class="empty-state" style="grid-column:1/-1">
     <div class="es-art">${ico(icon, "ic es-ic")}</div>
-    <h3>${title}</h3><p class="muted">${desc}</p>
+    <h2>${title}</h2><p class="muted">${desc}</p>
     ${actions ? `<div class="row" style="justify-content:center;margin-top:6px">${actions}</div>` : ""}</div>`;
 }
 function skeletonLibrary() {
