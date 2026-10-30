@@ -1164,7 +1164,10 @@ function drawGraph(headHtml) {
 function applyView() { const z = $("#gZoom"); if (z) z.setAttribute("transform", `translate(${gView.x},${gView.y}) scale(${gView.k})`); }
 
 /* 简单的力导向布局：同步算好再画（几百个点以内很快） */
-function forceLayout(nodes, links, W, H) {
+function forceLayout(all, links, W, H) {
+  // 没有任何连线的笔记不参与受力计算，最后沿外圈摆放；否则会被排斥力推到四个角上
+  const linked = new Set(); links.forEach((l) => { linked.add(l.s); linked.add(l.t); });
+  const nodes = all.filter((n) => linked.has(n)), lone = all.filter((n) => !linked.has(n));
   const byCat = {}; nodes.forEach((n) => (byCat[n.cat] ||= []).push(n));
   const cs = Object.keys(byCat);
   cs.forEach((c, ci) => {  // 同一分类先放在一起，布局收敛得快
@@ -1178,7 +1181,7 @@ function forceLayout(nodes, links, W, H) {
   });
   // Fruchterman–Reingold：点之间互相排斥、连线把两端拉近，每步移动距离逐渐变小（降温）
   const N = nodes.length, iters = N > 300 ? 150 : 300;
-  const k = Math.min(90, Math.sqrt((W * H) / Math.max(N, 1)) * 0.5);
+  const k = Math.min(90, Math.sqrt((W * H) / Math.max(all.length, 1)) * 0.7);
   const mx = 64, my = 28;  // 留出标签的位置
   let temp = W / 8;
   for (let it = 0; it < iters; it++) {
@@ -1193,16 +1196,27 @@ function forceLayout(nodes, links, W, H) {
     }
     for (const l of links) {
       const dx = l.t.x - l.s.x, dy = l.t.y - l.s.y, d = Math.sqrt(dx * dx + dy * dy) || 0.1;
-      const f = (d / (k * k)) * (l.view ? 6 : 0.7 + Math.min(l.w, 4) * 0.2);  // 共同关键词越多拉得越紧；共识观点贴着它的笔记
+      const f = (d / k) * (l.view ? 2 : 0.7 + Math.min(l.w, 4) * 0.2);  // 共同关键词越多拉得越紧；共识观点贴着它的笔记
       l.s.vx += dx * f; l.s.vy += dy * f; l.t.vx -= dx * f; l.t.vy -= dy * f;
     }
     for (const n of nodes) {
-      n.vx += (W / 2 - n.x) * 0.06; n.vy += (H / 2 - n.y) * 0.06;  // 轻轻拉向中间，没连线的点不会飘走
+      n.vx += (W / 2 - n.x) * 0.06; n.vy += (H / 2 - n.y) * 0.06;  // 轻轻拉向中间，不相连的几团不会飘走
       const len = Math.sqrt(n.vx * n.vx + n.vy * n.vy) || 1, step = Math.min(len, temp);
       n.x = Math.max(mx, Math.min(W - mx, n.x + (n.vx / len) * step));
       n.y = Math.max(my, Math.min(H - my, n.y + (n.vy / len) * step));
     }
     temp = Math.max(0.5, temp * 0.975);
+  }
+  // 没连线的笔记：在外圈上逐个挑离已有点最远的位置
+  const placed = [...nodes], rx = W / 2 - mx, ry = H / 2 - my;
+  for (const n of lone) {
+    let best = -1;
+    for (let i = 0; i < 72; i++) {
+      const a = (i / 72) * 2 * Math.PI, x = W / 2 + Math.cos(a) * rx, y = H / 2 + Math.sin(a) * ry;
+      const d = placed.reduce((m, p) => Math.min(m, Math.hypot(p.x - x, p.y - y)), Infinity);
+      if (d > best) { best = d; n.x = x; n.y = y; }
+    }
+    placed.push(n);
   }
 }
 

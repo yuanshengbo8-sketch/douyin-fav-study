@@ -6,10 +6,15 @@
 Turn your saved Douyin videos &amp; image posts into local study notes you can learn, quiz and review.</p>
 
 <p align="center">
-<img alt="version" src="https://img.shields.io/badge/version-1.0.4-0071e3">
+<a href="https://github.com/yuanshengbo8-sketch/douyin-fav-study/releases/latest"><img alt="version" src="https://img.shields.io/github/v/release/yuanshengbo8-sketch/douyin-fav-study?label=version&color=0071e3"></a>
 <img alt="platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-555">
-<img alt="python" src="https://img.shields.io/badge/python-3.11%20%7C%203.12-3776ab">
 <img alt="license" src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-orange">
+</p>
+
+<p align="center">
+<a href="https://github.com/yuanshengbo8-sketch/douyin-fav-study/releases/latest"><img alt="下载 Windows 安装包" src="https://img.shields.io/badge/%E4%B8%8B%E8%BD%BD%20Windows%20%E5%AE%89%E8%A3%85%E5%8C%85-%E5%8F%8C%E5%87%BB%E5%AE%89%E8%A3%85%EF%BC%8C%E4%B8%8D%E7%94%A8%E8%A3%85%20Python-0071e3?style=for-the-badge&logo=windows&logoColor=white"></a>
+<br>
+<sub>Mac 或想用脚本安装：看下面的 <a href="#快速开始--quick-start">快速开始</a></sub>
 </p>
 
 **抖音链接 / 收藏夹 → 下载 → 本机语音转文字 / 图片文字识别 → AI 提炼 → 学习网站 + Markdown 笔记 + PDF**
@@ -38,9 +43,13 @@ The full 3-minute walkthrough is attached to the [v1.0.1 release](https://github
 | **带我精读**：核心结论、思维导图、带时间戳的大纲、“你真的懂了吗”追问、10 道测验、Anki 卡片、问老师 | **进度条和剩余时间**：按你电脑的实际速度估算 |
 | **免费方案**：智谱 GLM / 硅基流动 / Gemini，粘贴 Key 一键配置 | **备份与恢复**：一个 zip 搬家，恢复前自动留底 |
 | **知识网络**：有共同关键词的笔记连成图谱；AI 找出多条视频互相印证的共识观点和说法不一致的地方 | **每周周报**：新增、学会、精读、测验、AI 消耗，连续学习几周 |
-| **Windows 一键安装包**：内置 Python 和全部组件，双击安装就能用 | |
+| **Windows 一键安装包**：内置 Python 和全部组件，双击安装就能用 | **Markdown + PDF**：笔记是普通 `.md` 文件，可当 Obsidian 库；也能导出 PDF |
 
 <table>
+<tr>
+<td><img src="docs/screenshots/knowledge-graph.png" alt="知识网络"><br><sub>知识网络：有共同关键词的笔记连成线，菱形是共识观点</sub></td>
+<td><img src="docs/screenshots/weekly.png" alt="每周周报"><br><sub>每周周报：学了什么、连续学习几周、下周先学哪几条</sub></td>
+</tr>
 <tr>
 <td><img src="docs/screenshots/deep-reading.png" alt="带我精读"><br><sub>带我精读：核心结论 + 思维导图</sub></td>
 <td><img src="docs/screenshots/understanding-check.png" alt="你真的懂了吗"><br><sub>你真的懂了吗？AI 点评你的回答</sub></td>
@@ -57,7 +66,7 @@ The full 3-minute walkthrough is attached to the [v1.0.1 release](https://github
 
 ## 快速开始 · Quick start
 
-**Windows 最省事：** 到 [Releases](../../releases) 下载 `DouyinFavStudy-Setup-版本号.exe`，双击安装，开始菜单和桌面会有「收藏学习台」。安装包里已经带好 Python 和全部组件，不用自己装 Python，也不需要管理员权限。以后升级再装一次新版本就行，笔记和设置不会丢。
+**Windows 最省事：** 到 [最新版本](https://github.com/yuanshengbo8-sketch/douyin-fav-study/releases/latest) 下载 `DouyinFavStudy-Setup-版本号.exe`，双击安装，开始菜单和桌面会有「收藏学习台」。安装包里已经带好 Python 和全部组件，不用自己装 Python，也不需要管理员权限。以后升级再装一次新版本就行，笔记和设置不会丢。
 
 > 之前用脚本安装过的老用户：先在旧版「设置 → 备份与恢复」下载完整备份，装好新版后在同一个地方恢复，数据就搬过来了。
 
@@ -74,6 +83,8 @@ The full 3-minute walkthrough is attached to the [v1.0.1 release](https://github
 ---
 
 ## 一、安装（只需要一次）
+
+> **用 Windows 安装包的，双击安装就已经装好了，跳过这一节，直接看「二、启动」。** 下面是 Mac 和脚本安装的步骤。
 
 ### 1. 先装 Python
 
@@ -103,11 +114,10 @@ The full 3-minute walkthrough is attached to the [v1.0.1 release](https://github
 
 ## 二、启动
 
-处理每条视频时，「添加与处理」页会显示进度条：当前在哪一步、百分比、这一条还剩多久、整批还剩多久。剩余时间按你电脑的实际速度估算，处理几条之后会越来越准。
-
-| 系统 | 操作 |
+| 怎么装的 | 怎么打开 |
 |---|---|
-| Windows | 双击 `start_windows.bat` |
+| Windows 安装包 | 开始菜单或桌面上的「收藏学习台」 |
+| Windows 脚本 | 双击 `start_windows.bat` |
 | Mac | 双击 `start_mac.command` |
 
 会弹出一个黑色命令行窗口（**别关它，关掉程序就退出了**），浏览器会自动打开 `http://127.0.0.1:8765`。
@@ -143,6 +153,8 @@ The full 3-minute walkthrough is attached to the [v1.0.1 release](https://github
 
 **方式三：导入本地视频**（备用）
 链接解析不了时，可以先把视频保存到手机或电脑，放进「收件箱」文件夹，再点「扫描并处理」。
+
+处理每条视频时，「添加与处理」页会显示进度条：当前在哪一步、百分比、这一条还剩多久、整批还剩多久。剩余时间按你电脑的实际速度估算，处理几条之后会越来越准。
 
 ### 4. 转文字的速度
 
@@ -239,14 +251,15 @@ The full 3-minute walkthrough is attached to the [v1.0.1 release](https://github
 **想换一台电脑？**
 用「设置 → 备份与恢复」：
 1. 旧电脑上点「下载完整备份」，得到一个 `收藏学习台备份-日期.zip`（包含笔记、文字稿、精读、学习进度、设置）。
-2. 新电脑上装好学习台（同样运行安装脚本），打开「设置 → 恢复备份…」，选这个 zip，确认后就恢复原样。
+2. 新电脑上装好学习台（Windows 用安装包，Mac 运行安装脚本），打开「设置 → 恢复备份…」，选这个 zip，确认后就恢复原样。
 3. 抖音登录状态不在备份里，新电脑上重新扫码；语音模型会自动重新下载。
 
 恢复会覆盖当前数据，但恢复前程序会先把当前数据自动备份到 `data/backups/`（保留最近 5 个），在同一个页面可以一键撤销。
 备份里如果包含 AI Key，请像密码一样保管。平时也建议隔一段时间下载一次备份，放到 iCloud 云盘或网盘里。
 
 **怎么彻底删除？**
-直接删除整个文件夹。删除前记得备份 `data/知识库`，里面是你的笔记。
+- 安装包版：在 Windows「设置 → 应用」里卸载「收藏学习台」，卸载时会问要不要一起删掉笔记和设置
+- 脚本版：直接删除整个文件夹。删除前记得备份 `data/知识库`，里面是你的笔记
 
 ---
 
