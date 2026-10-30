@@ -6,7 +6,7 @@
 Turn your saved Douyin videos &amp; image posts into local study notes you can learn, quiz and review.</p>
 
 <p align="center">
-<img alt="version" src="https://img.shields.io/badge/version-1.0.2-0071e3">
+<img alt="version" src="https://img.shields.io/badge/version-1.0.3-0071e3">
 <img alt="platform" src="https://img.shields.io/badge/platform-Windows%20%7C%20macOS-555">
 <img alt="python" src="https://img.shields.io/badge/python-3.11%20%7C%203.12-3776ab">
 <img alt="license" src="https://img.shields.io/badge/license-PolyForm%20Noncommercial-orange">
