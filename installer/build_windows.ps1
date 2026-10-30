@@ -91,4 +91,4 @@ if (-not (Test-Path $Lang)) {
 }
 & $iscc "/DAppVersion=$Version" "/DStageDir=$Stage" "/DLangFile=$Lang" "/O$Root\dist" "$Root\installer\setup.iss"
 if ($LASTEXITCODE) { throw "Inno Setup 编译失败" }
-Get-ChildItem "$Root\dist" -Filter "*.exe" | ForEach-Object { Write-Host ("完成：{0}（{1:N0} MB）" -f $_.FullName, ($_.Length / 1MB)) }
+Get-Item "$Root\dist\DouyinFavStudy-Setup-$Version.exe" | ForEach-Object { Write-Host ("完成：{0}（{1:N0} MB）" -f $_.FullName, ($_.Length / 1MB)) }
