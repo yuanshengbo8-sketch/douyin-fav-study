@@ -2,6 +2,7 @@
 import json
 import os
 import threading
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -108,6 +109,8 @@ DEFAULTS = {
     "free_plan": "",                    # 正在用的免费方案（空 = 没用）
     "welcome_done": False,
     "tokens_used": 0,
+    "tokens_weekly": {},                # 每周消耗：{"本周一的日期": token 数}，周报用，只留最近 12 周
+    "weekly_seen": "",                  # 看过的最近一期周报（那周周一的日期）
     "timing": {},                       # 各步骤实际耗时（用来估算剩余时间）
 }
 
@@ -145,10 +148,21 @@ def save(patch: dict):
         return s
 
 
+def week_key(t=None) -> str:
+    """t 所在那一周的周一（本地时间），例如 "2026-10-26"。"""
+    import datetime
+    d = datetime.date.fromtimestamp(t if t is not None else time.time())
+    return (d - datetime.timedelta(days=d.weekday())).isoformat()
+
+
 def add_tokens(n: int):
     if n:
         s = load()
-        save({"tokens_used": int(s.get("tokens_used", 0)) + int(n)})
+        weekly = dict(s.get("tokens_weekly") or {})
+        wk = week_key()
+        weekly[wk] = int(weekly.get(wk, 0)) + int(n)
+        weekly = dict(sorted(weekly.items())[-12:])
+        save({"tokens_used": int(s.get("tokens_used", 0)) + int(n), "tokens_weekly": weekly})
 
 
 def public(s: dict) -> dict:

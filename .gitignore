@@ -8,3 +8,6 @@ __pycache__/
 .DS_Store
 Thumbs.db
 *.zip
+# 打包安装包时的临时文件和产物
+build/
+dist/

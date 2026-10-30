@@ -247,7 +247,12 @@ def extract(settings, title, author, transcript, kind="video"):
         d = parse_json(text)
     except Exception:
         raise LLMError("AI 返回的不是有效的 JSON：" + (text or "")[:200])
-    return normalize(d), used
+    note = normalize(d)
+    if not note.get("skip"):
+        # AI 有时把「AI 编程」写成「AI编程」，同一个分类就被拆成两个；对上设置里的分类名
+        same = {re.sub(r"\s+", "", c): c for c in settings.get("categories") or []}
+        note["category"] = same.get(re.sub(r"\s+", "", note["category"]), note["category"])
+    return note, used
 
 
 CHAT_HINT = ("gpt", "o1", "o3", "o4", "chatgpt", "claude", "deepseek", "qwen", "glm", "moonshot", "kimi",

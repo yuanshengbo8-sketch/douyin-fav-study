@@ -45,6 +45,15 @@ CREATE TABLE IF NOT EXISTS items (
   learned_at REAL
 );
 CREATE INDEX IF NOT EXISTS idx_items_status ON items(status);
+-- 共识观点：每个分类一份，AI 从这个分类的多条笔记里找出互相印证 / 有分歧的观点
+CREATE TABLE IF NOT EXISTS insights (
+  category TEXT PRIMARY KEY,
+  data_json TEXT NOT NULL,
+  item_ids TEXT NOT NULL,     -- 整理时用到的笔记 id（逗号分隔），用来判断有没有新笔记
+  model TEXT,
+  md_path TEXT,
+  created_at REAL NOT NULL
+);
 """
 
 _local = threading.local()
@@ -181,6 +190,35 @@ def list_items(status=None, category=None, q=None, learned=None, starred=None, l
         d["difficulty"] = note.get("difficulty", "")
         out.append(d)
     return out
+
+
+def done_items():
+    """学习库里的全部笔记（含 JSON 字段），图谱、共识观点和周报用。"""
+    return [_row(r) for r in conn().execute(
+        "SELECT id,title,author,category,learned,learned_at,starred,created_at,md_path,media_type,"
+        "note_json,deep_json,chat_json FROM items WHERE status='done' ORDER BY id")]
+
+
+def get_insight(category):
+    r = conn().execute("SELECT * FROM insights WHERE category=?", (category,)).fetchone()
+    if r is None:
+        return None
+    d = dict(r)
+    d["data"] = json.loads(d.pop("data_json"))
+    d["item_ids"] = [int(x) for x in d["item_ids"].split(",") if x]
+    return d
+
+
+def list_insights():
+    return [get_insight(r["category"]) for r in conn().execute("SELECT category FROM insights ORDER BY created_at DESC")]
+
+
+def save_insight(category, data, item_ids, model, md_path):
+    with _write_lock:
+        conn().execute(
+            "INSERT OR REPLACE INTO insights(category,data_json,item_ids,model,md_path,created_at) VALUES(?,?,?,?,?,?)",
+            (category, json.dumps(data, ensure_ascii=False), ",".join(map(str, item_ids)), model, md_path, time.time()))
+        conn().commit()
 
 
 def stats():
