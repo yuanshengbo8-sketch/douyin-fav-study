@@ -107,7 +107,8 @@ DEFAULTS = {
     "deep_prompt": DEFAULT_DEEP_PROMPT,
     "deep_chunk_chars": 12000,          # 文稿超过这个字数就分段总结再合并
     "free_plan": "",                    # 正在用的免费方案（空 = 没用）
-    "welcome_done": False,
+    "welcome_done": False,              # 新手引导已经关掉
+    "onboard_topic": "",                # 新手引导里选的主题（空 = 还没选）
     "tokens_used": 0,
     "tokens_weekly": {},                # 每周消耗：{"本周一的日期": token 数}，周报用，只留最近 12 周
     "weekly_seen": "",                  # 看过的最近一期周报（那周周一的日期）
@@ -174,6 +175,8 @@ def public(s: dict) -> dict:
         out[field + "_hint"] = ("••••" + k[-4:]) if len(k) >= 4 else ""
     out.pop("timing", None)
     out["default_deep_prompt"] = DEFAULT_DEEP_PROMPT
+    out["default_focus_topic"] = DEFAULTS["focus_topic"]
+    out["default_categories"] = DEFAULT_CATEGORIES
     return out
 
 

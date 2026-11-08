@@ -324,6 +324,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/process":
             worker.submit("process")
             return self._json({"ok": True})
+        if path == "/api/dismiss_error":
+            worker.clear_error()
+            return self._json({"ok": True})
         if path == "/api/stop":
             worker.stop()
             return self._json({"ok": True})

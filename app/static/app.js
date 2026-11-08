@@ -82,6 +82,8 @@ async function refreshState() {
   const st = STATE.stats, w = STATE.worker;
   const queued = ACTIVE.reduce((n, k) => n + (st.by_status[k] || 0), 0);
   const q = $("#navQueue"); q.hidden = !queued; q.textContent = queued;
+  const ns = $("#navStart"); ns.hidden = !guideActive();
+  if (!ns.hidden) { const left = onboardSteps().filter((x) => !x.done).length; $("#navStartN").hidden = !left; $("#navStartN").textContent = left; }
   const sf = $("#sideStatus");
   const pg = STATE.progress || {}, dp = STATE.deep || {};
   const parts = [];
@@ -105,6 +107,7 @@ function startPolling() {
     await refreshState();
     const r = route();
     if (r.name === "process") renderProcessLive();
+    else if (r.name === "start" && startKey() !== lastStartKey && !view.contains(document.activeElement?.closest("input, textarea"))) renderStart(true);
     else if (r.name === "library" && JSON.stringify(STATE?.stats) !== before) renderLibrary(true);
     else if (r.name === "item" && curItem) {
       const busy = deepBusy(curItem.id);
@@ -134,6 +137,7 @@ function route() {
   const p = h.split("/").filter(Boolean);
   if (p[0] === "item") return { name: "item", id: +p[1], tab: p[2] };
   if (p[0] === "process") return { name: "process" };
+  if (p[0] === "start") return { name: "start" };
   if (p[0] === "settings") return { name: "settings" };
   if (p[0] === "graph") return { name: "graph", tab: p[1] === "consensus" ? "consensus" : "map", category: p.slice(2).join("/") };
   if (p[0] === "weekly") return { name: "weekly", offset: Math.min(0, parseInt(p[1] || "0", 10) || 0) };
@@ -147,6 +151,7 @@ async function render() {
   if (r.name === "library") { libFilter.category = r.category; await refreshState(); return renderLibrary(); }
   if (r.name === "item") return renderItem(r.id, r.tab);
   if (r.name === "process") return renderProcess();
+  if (r.name === "start") return renderStart();
   if (r.name === "settings") return renderSettings();
   if (r.name === "graph") return renderGraphPage(r.tab, r.category);
   if (r.name === "weekly") return renderWeekly(r.offset);
@@ -173,6 +178,9 @@ function bannerHtml() {
   const s = STATE.settings;
   if (!s.api_key_set) return `<div class="banner info"><div><b>还没配置 AI。</b> 没有它只能把视频转成文字，生成不了学习笔记。
     用「免费方案」两分钟就能配好，不花钱。</div><span class="spacer"></span><a class="btn sm primary" href="#/settings">去配置 →</a></div>`;
+  const nk = STATE.stats.by_status.need_key || 0;
+  if (nk) return `<div class="banner info"><div><b>有 ${nk} 条已经转好文字，等着 AI 写笔记。</b> AI 已经配好了，点一下就能全部生成。</div>
+    <span class="spacer"></span><button class="btn sm primary" onclick="reextractAll()">全部生成笔记</button></div>`;
   if (weeklyDue?.due) return `<div class="banner info"><div><b>上周的学习周报出来了。</b> 看看上周学了什么，这周从哪条开始。</div>
     <span class="spacer"></span><a class="btn sm primary" href="#/weekly/-1">看周报 →</a></div>`;
   return "";
@@ -249,8 +257,8 @@ function gridHtml(items) {
     if (libFilter.q || libFilter.learned || libFilter.starred)
       return emptyHtml("search", "没有符合条件的笔记", "换个关键词，或者切回「全部」看看。");
     if (any) return emptyHtml("inbox", "笔记还在路上", "视频处理完会自动出现在这里。", `<a class="btn" href="#/process">查看处理进度</a>`);
-    return emptyHtml("book", "学习库还是空的", "把抖音收藏里的干货搬进来，这里会变成你的知识库。",
-      `<a class="btn primary" href="#/process">${ico("plus")}同步收藏夹</a><button class="btn" onclick="openAdd()">粘贴分享链接</button>`);
+    return emptyHtml("book", "学习库还是空的", "把抖音收藏里的干货搬进来，这里会变成你的知识库。第一次用的话，跟着新手引导走，大约 10 分钟。",
+      `<a class="btn primary" href="#/start">跟着引导开始</a><button class="btn" onclick="openAdd()">粘贴分享链接</button>`);
   }
   return items.map((it, i) => `
     <a class="vcard" href="#/item/${it.id}" style="--i:${Math.min(i, 14)}">
@@ -335,7 +343,7 @@ async function renderItem(id, tab) {
           ${(n.tags || []).map((t) => `<span class="muted">#${esc(t)}</span>`).join(" ")}
         </div>
         ${it.title && it.title !== n.title && it.source !== "paste" ? `<div class="muted small orig-title" style="margin-top:-8px" title="点击展开 / 收起">原标题：${esc(it.title)}</div>` : ""}
-        ${it.reason ? `<div class="banner warn" style="margin-top:14px">${esc(it.reason)}</div>` : ""}
+        ${it.reason ? `<div class="banner warn" style="margin-top:14px"><div>${esc(it.reason)}${fixHint(it.reason) ? `<div class="fix">怎么办：${esc(fixHint(it.reason))}</div>` : ""}</div></div>` : ""}
         <div class="tabs itabs" id="itabs">${tabs.map(([k, l]) => `<button data-t="${k}" class="${itemTab === k ? "on" : ""}">${l}</button>`).join("")}</div>
         <div id="tabBody"></div>
       </article>
@@ -628,6 +636,7 @@ async function renderProcess() {
   const s = STATE.settings;
   view.innerHTML = `
     <div class="head"><div><h1>添加与处理</h1><div class="muted">视频：读取信息 → 下载 → 本地转文字 → AI 提炼；图文：下载图片 → 识别图片文字 → AI 提炼</div></div></div>
+    <div id="errSlot">${lastErrorBanner()}</div>
     ${bannerHtml()}
     <div class="card sync-card">
       <div class="sync-intro">
@@ -670,7 +679,7 @@ async function renderProcess() {
   };
   $("#syncBtn").onclick = async () => {
     await api("/api/sync", { kind: $("#sKind").value, limit: +$("#sLimit").value || 50 });
-    toast("开始同步，请留意弹出的浏览器窗口"); renderProcessLive();
+    toast("开始同步：请看弹出的浏览器窗口，第一次要用抖音 App 扫码", 4000); renderProcessLive();
   };
   $("#loginBtn").onclick = async () => { await api("/api/login", {}); toast("请在弹出的浏览器窗口里扫码登录"); };
   $("#copyLogs").onclick = async () => {
@@ -698,6 +707,7 @@ async function renderProcessLive() {
   if (!$("#statusCard")) return;
   const w = STATE.worker, st = STATE.stats.by_status;
   const pg = STATE.progress || {};
+  const es = $("#errSlot"); if (es) { const h = lastErrorBanner(); if (es.dataset.h !== h) { es.innerHTML = h; es.dataset.h = h; } }
   $("#statusCard").innerHTML = w.busy
     ? (pg.item_id ? `<div class="pcard">
         <div class="row"><div class="spinner"></div><b class="ptitle">${esc(pg.title || "处理中")}</b><span class="spacer"></span><button class="btn sm" id="stopBtn">停止</button></div>
@@ -743,7 +753,7 @@ async function renderProcessLive() {
     if (["failed", "skipped", "irrelevant", "need_key", "queued"].includes(it.status)) btns += ` <button class="btn sm ghost" data-a="delete" data-id="${it.id}">删除</button>`;
     return `<div class="qrow"><div style="min-width:0">
         <div class="t"><a href="#/item/${it.id}" style="color:inherit">${esc(it.note_title || it.title || it.url || "（解析中）")}</a></div>
-        <div class="r"><span class="chip ${cls}">${label}</span> ${esc(it.reason || "")}</div></div>
+        <div class="r"><span class="chip ${cls}">${label}</span> ${esc(it.reason || "")}${it.status === "failed" && fixHint(it.reason) ? `<div class="fix">怎么办：${esc(fixHint(it.reason))}</div>` : ""}</div></div>
         <div class="row">${btns}</div></div>`;
   }).join("") : `<div class="empty" style="padding:30px">这里是空的</div>`;
   $$("#qlist [data-a]").forEach((b) => b.onclick = async () => {
@@ -937,7 +947,7 @@ async function renderSettings() {
       deep_chunk_chars: +$("#dChunk").value,
       focus_topic: $("#focus").value.trim(), only_relevant: $("#onlyRel").checked, categories: $("#cats").value,
       whisper_model: $("#wm").value, asr_engine: $("#engine").value, use_subtitles: $("#useSubs").checked, max_minutes: +$("#maxMin").value, use_hf_mirror: $("#mirror").checked,
-      keep_video: $("#keepVideo").checked, library_dir: $("#libDir").value.trim(), browser: $("#browser").value, welcome_done: true,
+      keep_video: $("#keepVideo").checked, library_dir: $("#libDir").value.trim(), browser: $("#browser").value,
     });
     toast("已保存"); renderSettings();
   };
@@ -948,7 +958,7 @@ let weeklyDue = null;
 (async () => {
   await refreshState();
   try { weeklyDue = await api("/api/weekly/due"); $("#navWeekly").hidden = !weeklyDue.due; } catch {}
-  if (!location.hash) location.hash = STATE.settings.api_key_set || STATE.stats.total ? "#/library" : "#/settings";
+  if (!location.hash) location.hash = guideActive() ? "#/start" : "#/library";
   render();
   startPolling();
 })();
@@ -1042,13 +1052,14 @@ function openLightbox(images, idx) {
 
 /* ---------------------------------------------------------------- 免费方案 */
 let freePick = null;
-function freePlanHtml(s) {
+function freePlanHtml(s, bare = false) {
   const FP = STATE.free_plans || {};
   const cur = s.free_plan && FP[s.free_plan];
-  return `<div class="card form free-card" style="margin-bottom:16px" id="freeCard">
-    <div class="row"><h2 style="margin:0">免费方案</h2><span class="chip">推荐新手</span><span class="spacer"></span>
+  return `<div class="${bare ? "free-card bare" : "card form free-card"}" style="margin-bottom:16px" id="freeCard">
+    ${bare ? "" : `<div class="row"><h2 style="margin:0">免费方案</h2><span class="chip">推荐新手</span><span class="spacer"></span>
       ${cur ? `<span class="chip teal">✓ 正在使用：${esc(cur.name)} · ${esc(s.model)}</span>` : ""}</div>
-    <p class="muted" style="margin:-6px 0 0">用你自己账号的免费额度，不花钱。免费模型够日常提炼用；想要更好的效果（尤其是「带我精读」），可以在下面换成付费模型。</p>
+    <p class="muted" style="margin:-6px 0 0">用你自己账号的免费额度，不花钱。免费模型够日常提炼用；想要更好的效果（尤其是「带我精读」），可以在下面换成付费模型。</p>`}
+    ${bare ? `<p class="muted small" style="margin:0 0 10px">先选一家：${Object.values(FP).map((p) => esc(p.name)).join("、")}。人在国内选前两个，不用翻墙。</p>` : ""}
     <div class="plans">${Object.entries(FP).map(([k, p]) => `
       <button class="plan ${freePick === k ? "on" : ""} ${s.free_plan === k ? "using" : ""}" data-plan="${k}">
         <div class="row" style="gap:6px"><b>${esc(p.name)}</b><span class="chip ${p.tag === "海外" ? "gray" : ""}">${esc(p.tag)}</span></div>
@@ -1082,12 +1093,192 @@ function renderFreeSteps() {
       const r = await api("/api/free_setup", { plan: freePick, api_key: key });
       toast(`配置好了：${r.name} · ${r.model}`, 3500);
       freePick = null; modelCache.main = null;
-      await renderSettings();
+      await refreshState(); await render();
     } catch (e) {
       $("#freeRes").innerHTML = `<span style="color:var(--bad)">✗ ${esc(e.message)}</span>`;
       $("#freeGo").disabled = false;
     }
   };
+}
+
+/* ---------------------------------------------------------------- 新手引导（开始使用） */
+// 很多人是在抖音刷到这个工具来的：不懂 API Key、只有手机上的链接、收藏的也不全是 AI 干货。
+// 这一页把第一次使用拆成 4 步，每步做完自动打勾。
+const TOPIC_PRESETS = {
+  ai: { label: "AI 干货", desc: "AI 工具、提示词、AI 编程", focus: null, cats: null },
+  money: { label: "理财", desc: "存钱、基金、副业",
+    focus: "理财和个人财务：存钱、记账、基金、保险、副业赚钱的方法", cats: ["理财入门", "基金与投资", "保险", "记账与省钱", "副业赚钱", "其他"] },
+  fit: { label: "健身减脂", desc: "训练、饮食、体态",
+    focus: "健身、减脂和健康饮食：训练动作、训练计划、饮食搭配、体态改善", cats: ["训练动作", "训练计划", "饮食与减脂", "体态与拉伸", "其他"] },
+  english: { label: "英语学习", desc: "口语、单词、考试",
+    focus: "英语学习：口语、听力、单词、语法、考试技巧", cats: ["口语", "听力", "单词", "语法", "考试技巧", "其他"] },
+  career: { label: "职场成长", desc: "沟通、效率、求职",
+    focus: "职场成长：沟通表达、时间管理、办公软件技巧、求职面试", cats: ["沟通表达", "效率与时间管理", "办公软件", "求职面试", "其他"] },
+  cook: { label: "做饭", desc: "菜谱、厨房技巧",
+    focus: "做饭和菜谱：家常菜做法、烘焙、厨房小技巧", cats: ["家常菜", "快手菜", "烘焙甜点", "厨房技巧", "其他"] },
+  all: { label: "什么都学", desc: "不按主题过滤", focus: "不限主题，只要有实质信息、能学到东西就保留",
+    cats: ["知识科普", "技能教程", "工具推荐", "生活技巧", "职场与理财", "健康与运动", "其他"], all: true },
+};
+
+function guideActive() {
+  if (!STATE) return false;
+  const s = STATE.settings;
+  return !s.welcome_done && !(s.api_key_set && (STATE.stats.by_status.done || 0) > 0);
+}
+
+function onboardSteps() {
+  const s = STATE.settings, st = STATE.stats, by = st.by_status;
+  return [
+    { k: "ai", done: !!s.api_key_set },
+    { k: "topic", done: !!s.onboard_topic },
+    { k: "add", done: (st.total || 0) > 0 },
+    { k: "note", done: (by.done || 0) > 0 },
+  ];
+}
+
+let lastStartKey = null;
+function startKey() {
+  const s = STATE.settings, by = STATE.stats.by_status, pg = STATE.progress || {};
+  return JSON.stringify([s.api_key_set, s.onboard_topic, s.welcome_done, STATE.stats.total, by, STATE.worker.busy,
+    pg.item_id, pg.stage, Math.round((pg.pct || 0) / 5), STATE.worker.last_error?.t]);
+}
+
+// 把常见报错翻译成「接下来该做什么」
+function fixHint(msg) {
+  msg = String(msg || "");
+  const rules = [
+    [/401|Key 无效|Key 无效，请检查/, "Key 填错了，或者已经在 AI 网站上删掉了。到「设置 → 免费方案」重新复制粘贴一次 Key，注意前后不要带空格。"],
+    [/402|403|余额不足|没有权限/, "这个 AI 账号没有余额，或者还没开通。最省事：在「设置 → 免费方案」换成免费的智谱 GLM 或硅基流动。"],
+    [/404|模型名不对|接口地址/, "模型名或接口地址填错了。最省事：在「设置 → 免费方案」点一键配置，程序会自动选好。"],
+    [/429|免费额度|太频繁/, "今天的免费额度用完了，或者请求太快。一般第二天会恢复；先少处理几条，或者在设置里换一家。"],
+    [/连不上 AI/, "电脑连不上这家 AI。人在国内请用智谱 GLM、硅基流动、DeepSeek 或 Kimi；Gemini、OpenAI、Claude 需要能访问海外网络。"],
+    [/还没填 AI|填好 AI Key/, STATE?.settings?.api_key_set ? "AI 已经配好了，点「重新 AI 提炼」就能生成笔记。"
+      : "先配好 AI：「开始使用」第 1 步，或「设置 → 免费方案」，两分钟就好。"],
+    [/截断|太长/, "内容太长了。在「设置 → 精读」把「分段预读」的字数调小，比如 8000，再试一次。"],
+    [/没登录|需要先登录|登录抖音|还没登录/, "抖音登录过期了。到「添加与处理」点「只登录抖音」，用手机抖音 App 扫弹出窗口里的二维码。"],
+    [/没读到「(收藏|喜欢)」列表/, "抖音网页改版或者弹了验证时，同步会暂时读不到。先看一眼弹出的浏览器窗口；还不行就用「粘贴分享链接」，效果一样。"],
+    [/验证/, "抖音弹了验证（比如拖滑块）。看一眼弹出的浏览器窗口，手动完成验证，然后点「重试」。"],
+    [/删除|私密/, "这条可能被作者删了或设成私密。能在手机上看到的话，保存视频后用「导入本地视频」。"],
+    [/找不到可用的浏览器/, "电脑上需要有 Edge 或 Chrome。装一个，再点一次同步。"],
+    [/playwright|安装没有完成/, "安装没完成。Windows 推荐直接用安装包；脚本安装的话，确认是 Python 3.12，再重新运行安装脚本。"],
+    [/下载失败|链接打不开|网络连不上抖音/, "网络不稳或链接过期了。过一会儿点「重试」；一直不行就把视频保存下来，用「导入本地视频」。"],
+    [/识别出视频 ID/, "要粘贴抖音里「分享 → 复制链接」得到的那段文字，里面有 v.douyin.com 开头的链接。"],
+  ];
+  for (const [re, tip] of rules) if (re.test(msg)) return tip;
+  return "";
+}
+
+function lastErrorBanner() {
+  const e = STATE?.worker?.last_error;
+  if (!e || STATE.worker.busy) return "";
+  const what = e.task === "login" ? "登录抖音" : "同步收藏夹";
+  const tip = fixHint(e.msg) || "抖音网页改版或网络不稳时，同步可能暂时用不了。先用「粘贴分享链接」，一样能变成笔记。";
+  const [first, ...rest] = String(e.msg).split("\n");
+  return `<div class="banner warn"><div><b>${what}没成功：</b>${esc(first)}<div class="fix">怎么办：${esc(tip)}</div>
+    ${rest.length ? `<details class="small" style="margin-top:4px"><summary>技术细节（发给作者排查用）</summary><pre class="err-detail">${esc(rest.join("\n"))}</pre></details>` : ""}</div>
+    <span class="spacer"></span><button class="btn sm" onclick="dismissError()">知道了</button></div>`;
+}
+async function dismissError() { await api("/api/dismiss_error", {}).catch(() => {}); await refreshState(); render(); }
+
+async function reextractAll() {
+  const items = await api("/api/items?status=need_key");
+  for (const it of items) await api(`/api/items/${it.id}/action`, { action: "reextract" });
+  toast(`${items.length} 条已加入队列，AI 正在写笔记`); await refreshState(); render();
+}
+
+async function renderStart(soft = false) {
+  if (!soft) await refreshState();
+  lastStartKey = startKey();
+  const s = STATE.settings, st = STATE.stats, by = st.by_status, w = STATE.worker, pg = STATE.progress || {};
+  const steps = onboardSteps(), doneN = steps.filter((x) => x.done).length;
+  const k = Object.fromEntries(steps.map((x) => [x.k, x.done]));
+  const keep = { paste: $("#obPaste")?.value, freeKey: $("#freeKey")?.value };
+  const firstDone = k.note ? (await api("/api/items?status=done"))[0] : null;
+  const active = ACTIVE.reduce((n, x) => n + (by[x] || 0), 0);
+  const FP = STATE.free_plans || {};
+  const topic = TOPIC_PRESETS[s.onboard_topic];
+  const step = (n, key, title, body, doneBody) => `
+    <section class="card ob-step ${k[key] ? "done" : ""}">
+      <div class="ob-num">${k[key] ? ico("check") : n}</div>
+      <div class="ob-body"><h2>${title}</h2>${k[key] && doneBody ? doneBody : body}</div>
+    </section>`;
+
+  view.innerHTML = `
+    <div class="head"><div><h1>开始使用</h1>
+      <div class="muted">4 步把抖音收藏变成能学的笔记，大约 10 分钟。全在你自己的电脑上，不用写代码。</div></div>
+      <span class="spacer"></span><span class="chip ${doneN === 4 ? "teal" : ""}">已完成 ${doneN} / 4</span></div>
+    ${depsBanner()}
+    ${lastErrorBanner()}
+    ${doneN === 4 ? `<div class="card ob-finish"><div class="es-art">${ico("trophy", "ic es-ic")}</div><div style="flex:1"><h2>都弄好了 🎉</h2>
+      <p class="muted">以后直接从「学习库」开始。想一次搬更多收藏，用「添加与处理 → 同步抖音收藏夹」。</p></div>
+      <button class="btn primary" id="obClose">关掉新手引导</button></div>` : ""}
+
+    ${step(1, "ai", "配好 AI（免费）",
+      `<p class="muted">学习台用 AI 帮你把视频整理成笔记。AI 网站会给你一串「钥匙」（叫 API Key，一般以 sk- 开头），复制过来粘贴到这里就行。
+        用下面的免费方案，用的是你自己账号的免费额度，不花钱。</p>
+      ${freePlanHtml(s, true)}
+      <p class="muted small">已经有 DeepSeek、Kimi 等付费的 Key？<a href="#/settings">去设置里填 →</a>
+        也可以先跳过：没有 AI 也能先把视频转成文字，之后补上 Key 再一键生成笔记。</p>`,
+      `<p class="muted">已经配好：${esc((FP[s.free_plan] || STATE.providers[s.provider] || {}).name || s.provider)} · ${esc(s.model)}。
+        <a href="#/settings">改设置</a></p>`)}
+
+    ${step(2, "topic", "你收藏的主要是什么？",
+      `<p class="muted">AI 会按这个给笔记分类，和主题无关的会先收起来（在「主题无关」里还能找回）。选错了随时能改。</p>
+      <div class="ob-topics">${Object.entries(TOPIC_PRESETS).map(([key, t]) =>
+        `<button class="plan" data-topic="${key}"><b>${esc(t.label)}</b><div class="muted small">${esc(t.desc)}</div></button>`).join("")}</div>
+      <p class="muted small">都不是？到「设置 → 学什么」里用自己的话写，比如「摄影和修图」。</p>`,
+      `<p class="muted">当前：<b>${esc(topic ? topic.label : "自定义")}</b>。想换的话 <a href="javascript:void 0" id="obTopicRedo">重新选</a>，或到「设置 → 学什么」里改。</p>`)}
+
+    ${step(3, "add", "添加第一条收藏",
+      `<p class="muted">建议先试 1 到 3 条。在手机抖音里打开视频 → 点「分享」→「复制链接」，然后把这段文字发到电脑上：
+        比如发给微信的「文件传输助手」或 QQ 的「我的电脑」，在电脑上复制下来，粘贴到这里。</p>
+      <textarea id="obPaste" rows="3" placeholder="例如：7.89 复制打开抖音，看看【xxx的作品】这3个AI工具… https://v.douyin.com/xxxxxx/"></textarea>
+      <div class="row" style="margin-top:10px"><span class="muted small">视频和图文都行，一次可以贴很多条。</span><span class="spacer"></span>
+        <button class="btn primary" id="obAdd">添加并开始处理</button></div>
+      <p class="muted small" style="margin-top:12px">想一次搬整个收藏夹？到 <a href="#/process">添加与处理 → 同步抖音收藏夹</a>。
+        会弹出一个浏览器窗口，用手机抖音 App 扫码登录（只要一次）。第一次建议只读 20 条，读的时候别关那个窗口。</p>`,
+      `<p class="muted">已经添加 ${st.total} 条。还想加？<a href="javascript:void 0" onclick="openAdd()">粘贴更多链接</a> 或 <a href="#/process">同步收藏夹</a>。</p>`)}
+
+    ${step(4, "note", "打开你的第一篇笔记",
+      (w.busy && pg.item_id ? `<div class="ob-prog"><div class="row small"><div class="spinner"></div><b class="ptitle">${esc(pg.title || "处理中")}</b>
+          <span class="spacer"></span><span class="muted">${esc(pg.stage_label || "")} ${pg.pct || 0}% · 还剩 ${fmtEta(pg.eta)}</span></div>
+          <div class="bar" style="margin-top:8px"><i style="width:${pg.pct || 0}%"></i></div>
+          <p class="muted small" style="margin:8px 0 0">第一次会下载语音识别模型（几百 MB 到 1.6GB），会慢一些，之后就快了。可以先去做别的，这页会自动更新。</p></div>`
+        : active ? `<p class="muted">还有 ${active} 条在排队。<a href="#/process">看处理进度 →</a></p>`
+        : (by.need_key || 0) ? `<p class="muted">有 ${by.need_key} 条已经转成文字了，${s.api_key_set ? "点下面的按钮让 AI 写笔记。" : "先完成第 1 步配好 AI，再回来点「全部生成笔记」。"}</p>
+          ${s.api_key_set ? `<button class="btn primary" onclick="reextractAll()">全部生成笔记</button>` : ""}`
+        : (by.failed || 0) ? `<p class="muted">有 ${by.failed} 条没处理成功。<a href="#/process">去看原因并重试 →</a></p>`
+        : (by.irrelevant || 0) ? `<p class="muted">添加的 ${by.irrelevant} 条被判断为「和主题无关」。回到第 2 步换个主题，或到 <a href="#/process">添加与处理 → 主题无关</a> 里点「收进学习库」。</p>`
+        : `<p class="muted">添加之后，程序会自动：下载 → 本机转文字 → AI 写笔记。一条一分钟的视频，通常一两分钟就好。</p>`) +
+      `<p class="muted small">每篇笔记里有：一句话总结、核心观点、照着做的步骤、自测题。点「带我精读」还有思维导图和 10 道测验。</p>`,
+      `<p class="muted">第一篇笔记已经好了。</p>
+       <div class="row">${firstDone ? `<a class="btn primary" href="#/item/${firstDone.id}">打开「${esc(firstDone.note_title || firstDone.title || "第一篇笔记")}」</a>` : ""}
+         <a class="btn" href="#/library">去学习库</a></div>`)}
+
+    ${doneN < 4 ? `<div class="row" style="margin-top:6px"><span class="spacer"></span><a href="javascript:void 0" class="muted small" id="obSkip">我会用了，关掉新手引导</a></div>` : ""}`;
+
+  if (keep.paste && $("#obPaste")) $("#obPaste").value = keep.paste;
+  if ($("#freeCard")) { setupFreePlan(); if (keep.freeKey && $("#freeKey")) $("#freeKey").value = keep.freeKey; }
+  $$("[data-topic]").forEach((b) => b.onclick = async () => {
+    const t = TOPIC_PRESETS[b.dataset.topic];
+    const patch = { onboard_topic: b.dataset.topic, only_relevant: !t.all };
+    patch.focus_topic = t.focus || s.default_focus_topic;
+    patch.categories = (t.cats || s.default_categories).join(",");
+    await api("/api/settings", patch);
+    toast(`好的，按「${t.label}」整理`); await refreshState(); renderStart(true);
+  });
+  $("#obTopicRedo") && ($("#obTopicRedo").onclick = async () => { await api("/api/settings", { onboard_topic: "" }); await refreshState(); renderStart(true); });
+  $("#obAdd") && ($("#obAdd").onclick = async () => {
+    try {
+      const r = await api("/api/links", { text: $("#obPaste").value });
+      $("#obPaste").value = "";
+      toast(r.added ? `找到 ${r.found} 个链接，新增 ${r.added} 条，开始处理` : `找到 ${r.found} 个链接，都已经添加过了`, 3500);
+      await refreshState(); renderStart(true);
+    } catch (e) { toast(e.message + (fixHint(e.message) ? "　" + fixHint(e.message) : ""), 6000); }
+  });
+  const close = async () => { await api("/api/settings", { welcome_done: true }); await refreshState(); location.hash = "#/library"; };
+  $("#obClose") && ($("#obClose").onclick = close);
+  $("#obSkip") && ($("#obSkip").onclick = close);
 }
 
 /* ---------------------------------------------------------------- 空状态与骨架屏 */

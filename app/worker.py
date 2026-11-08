@@ -18,7 +18,8 @@ class Worker:
     def __init__(self):
         self.cmds = queue.Queue()
         self.logs = collections.deque(maxlen=300)
-        self.state = {"busy": False, "task": "", "item_id": None, "stage": "", "done": 0, "total": 0}
+        self.state = {"busy": False, "task": "", "item_id": None, "stage": "", "done": 0, "total": 0,
+                      "last_error": None}  # 最近一次登录 / 同步失败的原因，网页上会显示成提示条
         self._stop = threading.Event()
         self.browser = None
         self.retry_later = []
@@ -47,6 +48,8 @@ class Worker:
         while True:
             cmd, kw = self.cmds.get()
             self.state.update(busy=True, task=cmd, stage="", item_id=None)
+            if cmd in ("login", "sync"):
+                self.state["last_error"] = None
             try:
                 if cmd == "process":
                     self._process_all()
@@ -56,13 +59,22 @@ class Worker:
                     self._sync(kw.get("kind", "collection"), kw.get("limit", 50), kw.get("then_process", True))
             except douyin.DouyinError as e:
                 self.log(f"⚠ {e}")
+                self._set_error(cmd, str(e))
             except Exception as e:
                 self.log(f"⚠ 出错了：{e}")
+                self._set_error(cmd, f"出错了：{e}")
                 traceback.print_exc()
             finally:
                 if self.cmds.empty():
                     self._close_browser()
                     self.state.update(busy=False, task="", stage="", item_id=None)
+
+    def _set_error(self, cmd, msg):
+        if cmd in ("login", "sync"):
+            self.state["last_error"] = {"task": cmd, "msg": msg, "t": time.time()}
+
+    def clear_error(self):
+        self.state["last_error"] = None
 
     def _browser(self):
         if self.browser is None:

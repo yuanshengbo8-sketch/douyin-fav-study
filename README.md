@@ -66,17 +66,67 @@ The full 3-minute walkthrough is attached to the [v1.0.1 release](https://github
 
 ## 快速开始 · Quick start
 
-**Windows 最省事：** 到 [最新版本](https://github.com/yuanshengbo8-sketch/douyin-fav-study/releases/latest) 下载 `DouyinFavStudy-Setup-版本号.exe`，双击安装，开始菜单和桌面会有「收藏学习台」。安装包里已经带好 Python 和全部组件，不用自己装 Python，也不需要管理员权限。以后升级再装一次新版本就行，笔记和设置不会丢。
+### 从抖音刷到这里的朋友，先看这 4 点
 
-> 之前用脚本安装过的老用户：先在旧版「设置 → 备份与恢复」下载完整备份，装好新版后在同一个地方恢复，数据就搬过来了。
+1. **要用电脑，手机用不了。** Windows 和 Mac 都行。手机只负责在抖音里复制链接。
+2. **不花钱也能用。** AI 用「免费方案」（智谱 GLM / 硅基流动），用的是你自己账号的免费额度。
+3. **不用写代码。** Windows 下载安装包双击就装好；Mac 跑一个安装脚本。
+4. **你的收藏和笔记只在你自己电脑上。** 只有文字会发给你自己选的 AI。
 
-**Mac，或者想用脚本安装：**
+### 10 分钟上手
 
-1. 安装 **Python 3.12**（不要装 3.13 及以上，部分组件还不支持；Windows 安装时勾选「Add python.exe to PATH」）
-2. 下载本仓库（右上角 **Code → Download ZIP**，或到 [Releases](../../releases) 下载），解压
-3. 双击 `install_windows.bat` 或 `install_mac.command` 安装（只需一次）
-4. 双击 `start_windows.bat` 或 `start_mac.command`，浏览器会打开 `http://127.0.0.1:8765`
-5. 设置页里配好 AI（可用免费方案），回到「添加与处理」粘贴链接或同步收藏夹
+**第 1 步：安装**
+
+- **Windows：** 到 [最新版本](https://github.com/yuanshengbo8-sketch/douyin-fav-study/releases/latest) 下载 `DouyinFavStudy-Setup-版本号.exe`，双击安装。桌面会出现「收藏学习台」。不用装 Python。
+- **Mac：** 先装 [Python 3.12](https://www.python.org/downloads/)（**别装 3.13 或更新的**），再下载本仓库（右上角 **Code → Download ZIP**）并解压，右键 `install_mac.command` → 打开。详细步骤见下面「一、安装」。
+
+**第 2 步：打开**
+
+双击桌面上的「收藏学习台」（Mac 双击 `start_mac.command`）。会先出现一个黑色窗口，**别关它**，关了程序就退出了。浏览器会自动打开学习台。
+
+**第 3 步：跟着「开始使用」页走**
+
+第一次打开会直接进入「开始使用」页，一共 4 步，做完一步自动打勾：
+
+| 步骤 | 做什么 | 小提示 |
+|---|---|---|
+| ① 配好 AI | 选一个免费方案 → 去它的网站注册 → 创建并复制 API Key → 粘贴回来点「一键配置」 | API Key 就是 AI 网站给你的一串「钥匙」，一般以 `sk-` 开头。人在国内选智谱 GLM 或硅基流动 |
+| ② 选你想学什么 | 点一下：AI 干货、理财、健身减脂、英语、职场、做饭，或者「什么都学」 | 默认只收 AI 相关的。收藏的是别的内容一定要选，不然会被收进「主题无关」 |
+| ③ 添加第一条 | 手机抖音里打开视频 → 分享 → 复制链接，发到微信「文件传输助手」，在电脑上复制下来粘贴进去 | 先试 1 到 3 条。熟了再用「同步抖音收藏夹」一次搬很多 |
+| ④ 打开第一篇笔记 | 等进度条走完，点「打开」 | 第一次要下载语音识别模型（几百 MB），会慢一点，之后就快了 |
+
+### 卡住了？最常见的 5 个情况
+
+| 看到什么 | 怎么办 |
+|---|---|
+| 「API Key 无效（401）」 | Key 没复制完整，或者前后带了空格。回到「设置 → 免费方案」重新粘贴一次 |
+| 「连不上 AI 接口」 | 人在国内请用智谱 GLM、硅基流动、DeepSeek 或 Kimi；Gemini、OpenAI、Claude 需要能访问海外网络 |
+| 「免费额度用完了（429）」 | 一般第二天恢复。先少处理几条，或者换一家 |
+| 同步收藏夹读不到 / 没反应 | 看一眼弹出的浏览器窗口：可能要扫码登录或拖滑块验证。抖音网页改版时同步会暂时失灵，这时用「粘贴分享链接」，效果完全一样 |
+| 笔记都跑到「主题无关」里了 | 回到「开始使用」第 ② 步换主题，或者在「添加与处理 → 主题无关」里点「收进学习库」 |
+
+每条失败的内容下面都会写「怎么办」。还是不行的话，在「添加与处理」页点「一键复制日志」，开 Issue 时贴上。
+
+### Quick start (English)
+
+**Before you start**
+
+1. **You need a computer** (Windows or Mac). Your phone is only used to copy links in the Douyin app.
+2. **It can be free.** Use a free AI plan (Zhipu GLM or SiliconFlow in China, Gemini elsewhere) on your own account's free quota.
+3. **No coding.** Windows has a one-click installer; Mac runs one install script.
+4. **Your data stays on your computer.** Only text is sent to the AI provider you choose.
+
+**Get going in about 10 minutes**
+
+1. **Install.** Windows: download `DouyinFavStudy-Setup-<version>.exe` from the [latest release](https://github.com/yuanshengbo8-sketch/douyin-fav-study/releases/latest) and double-click it (no Python needed). Mac: install [Python 3.12](https://www.python.org/downloads/) (not 3.13+), download this repo as a ZIP, unzip it, then right-click `install_mac.command` → Open.
+2. **Launch.** Open "收藏学习台" from the desktop (Mac: double-click `start_mac.command`). Keep the black console window open; closing it quits the app. Your browser opens the app automatically.
+3. **Follow the "开始使用" (Getting started) page.** It opens on first launch and ticks off four steps:
+   - ① **Set up AI:** pick a free plan, sign up on the provider's site, create and copy an API key, paste it back and click "一键配置" (auto setup).
+   - ② **Pick what you save:** AI, money, fitness, English, career, cooking, or "什么都学" (no filtering). The default keeps only AI content, so pick yours.
+   - ③ **Add your first video:** in the Douyin app tap Share → Copy link, send it to yourself (for example WeChat "File Transfer"), then paste it on the computer. Try 1 to 3 first; sync your whole favorites list later.
+   - ④ **Open your first note** when the progress bar finishes. The first run downloads a speech model (hundreds of MB), so it is slower once.
+
+**If you get stuck:** every failed item now shows a plain "怎么办" (what to do) line. The common ones: an invalid key (401) means the key was not copied in full; "can't reach the AI" in mainland China means switching to a domestic provider; 429 means today's free quota ran out; if favorites sync stops working after a Douyin website change, paste share links instead, which works the same.
 
 下面是完整的使用说明。
 
@@ -125,6 +175,8 @@ The full 3-minute walkthrough is attached to the [v1.0.1 release](https://github
 ---
 
 ## 三、第一次使用
+
+> 第一次打开会进入左侧的「开始使用」页，下面这些步骤在那一页上都能直接做完，做完一步自动打勾。全部完成或点「关掉新手引导」后，这一页就会收起来。
 
 ### 1. 配置 AI（设置页）
 
