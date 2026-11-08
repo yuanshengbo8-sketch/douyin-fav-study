@@ -125,7 +125,10 @@ def chat(cfg, messages, json_mode=True, temperature=0.3, max_tokens=None, timeou
                 if data.get("stop_reason") == "max_tokens" and json_mode:
                     raise LLMError("AI 输出太长被截断了，可以在设置里把精读分段字数调小再试")
             else:
-                text = data["choices"][0]["message"]["content"] or ""
+                choice = data["choices"][0]
+                if json_mode and choice.get("finish_reason") == "length":
+                    raise LLMError("AI 输出达到长度上限，JSON 可能不完整。精读时可调小分段字数，或减少提示词要求生成的内容。")
+                text = choice["message"]["content"] or ""
                 used = (data.get("usage") or {}).get("total_tokens", 0)
             return text, used
         except urllib.error.HTTPError as e:
