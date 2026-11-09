@@ -346,7 +346,7 @@ powershell -ExecutionPolicy Bypass -File installer\build_windows.ps1
 
 脚本会下载官方嵌入版 Python 3.12、装好全部组件、编译出 `dist\DouyinFavStudy-Setup-版本号.exe`。国内网络慢可以加 `-PipIndex https://pypi.tuna.tsinghua.edu.cn/simple`。
 
-想让 GitHub 在每次发布 Release 时自动打包：把 `installer/windows-installer.yml` 移到 `.github/workflows/` 里再推送（推送 workflow 文件需要 GitHub 账号授权 `workflow` 权限，命令行用户先运行 `gh auth refresh -s workflow`）。
+发布 Release 时，GitHub Actions 会自动打包 Windows 安装包并上传到这个 Release（`.github/workflows/windows-installer.yml`）。要给已经发布的版本补安装包：在 Actions 页面手动运行「Windows 安装包」，填上版本号（例如 `v1.0.7`）。
 
 ---
 
