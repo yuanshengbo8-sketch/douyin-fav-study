@@ -109,6 +109,7 @@ DEFAULTS = {
     "free_plan": "",                    # 正在用的免费方案（空 = 没用）
     "welcome_done": False,              # 新手引导已经关掉
     "onboard_topic": "",                # 新手引导里选的主题（空 = 还没选）
+    "check_update": True,               # 启动时去 GitHub 看看有没有新版本（只问版本号，不上传任何东西）
     "tokens_used": 0,
     "tokens_weekly": {},                # 每周消耗：{"本周一的日期": token 数}，周报用，只留最近 12 周
     "weekly_seen": "",                  # 看过的最近一期周报（那周周一的日期）

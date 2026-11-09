@@ -12,7 +12,7 @@ import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-from . import __version__, backup, config, db, deep, douyin, insights, llm, notes, ocr, transcribe, weekly
+from . import __version__, backup, config, db, deep, douyin, insights, llm, notes, ocr, transcribe, update, weekly
 from .worker import Worker, scan_inbox
 
 _DEPS = None
@@ -208,6 +208,7 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         if path == "/api/state":
+            update.maybe_check()
             s = config.load()
             return self._json({
                 "worker": worker.state, "logs": list(worker.logs)[-80:], "stats": db.stats(),
@@ -219,6 +220,7 @@ class Handler(BaseHTTPRequestHandler):
                     max(0, db.stats()["by_status"].get("queued", 0))),
                 "deep": deep_runner.snapshot(),
                 "insights": insight_runner.snapshot(),
+                "update": update.status(),
             })
         if path == "/api/graph":
             return self._json(insights.graph())
@@ -320,6 +322,10 @@ class Handler(BaseHTTPRequestHandler):
             if b.get("process", True) and added:
                 worker.submit("process")
             return self._json({"found": len(links), "added": added})
+
+        if path == "/api/update/check":
+            # 设置页的「检查更新」：马上去 GitHub 问一次
+            return self._json(update.check(force=True))
 
         if path == "/api/process":
             worker.submit("process")
@@ -598,6 +604,7 @@ def serve(port=8765, open_browser=True):
     print(f"  在浏览器打开：{url}")
     print("  关闭这个窗口即可退出程序")
     print("=" * 56, flush=True)
+    update.check_in_background()
     if open_browser:
         import webbrowser
         try:

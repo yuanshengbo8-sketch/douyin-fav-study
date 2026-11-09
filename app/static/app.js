@@ -90,7 +90,10 @@ async function refreshState() {
   if (w.busy) parts.push(pg.item_id ? `${pg.stage_label} ${pg.pct}% · ${fmtEta(pg.eta)}` : (w.stage || "处理中…"));
   if (dp.item_id) parts.push(`精读 ${dp.pct || 0}% · ${fmtEta(dp.eta)}`);
   sf.className = "side-foot" + (parts.length ? " busy" : "");
-  sf.textContent = parts.join("\n") || `就绪 · v${STATE.version || ""}`;
+  const up = STATE.update || {};
+  if (parts.length) sf.textContent = parts.join("\n");
+  else sf.innerHTML = `就绪 · v${esc(STATE.version || "")}` +
+    (up.newer ? ` · <a href="#/settings/update" class="link">有新版本 v${esc(up.latest)}</a>` : "");
   $("#navCats").innerHTML = (st.categories || []).map((c) =>
     `<a href="#/library/cat/${encodeURIComponent(c.category || "其他")}" class="${libFilter.category === c.category ? "on" : ""}">
       <i class="dot cat-${catColor(c.category)}"></i>${esc(c.category || "其他")}<span>${c.n}</span></a>`).join("");
@@ -173,8 +176,30 @@ function depsBanner() {
     <div class="small" style="margin-top:6px">${d.python_ok ? "" : `你用的是 Python ${esc(d.python)}，太新了，部分组件还不支持。请先安装 Python 3.12，`}关掉这个程序，删掉程序文件夹里的 .venv 文件夹，再重新运行安装脚本，看到「安装完成」后再启动。</div></div></div>`;
 }
 
+/* ---------------------------------------------------------------- 新版本提醒 */
+const UPD_KEY = "dfs.updateDismissed";
+const lsGet = (k) => { try { return localStorage.getItem(k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(k, v); } catch {} };
+function upgradeHint(up) {
+  return up.install_kind === "installer"
+    ? "下载新的 DouyinFavStudy-Setup.exe，双击覆盖安装就行，笔记和设置不会丢。"
+    : "下载新版 ZIP，解压后把里面的文件复制到现在的程序文件夹里覆盖（data 文件夹不用动），再双击一次安装脚本。";
+}
+function updateBanner() {
+  const up = STATE.update || {};
+  if (!up.newer || lsGet(UPD_KEY) === up.latest) return "";
+  return `<div class="banner info" id="updBanner"><div><b>有新版本 v${esc(up.latest)}</b>（你在用 v${esc(up.current)}）。
+    抖音改版导致同步失效时，修复会发在新版本里。<div class="small" style="margin-top:4px">${esc(upgradeHint(up))}</div></div>
+    <span class="spacer"></span><button class="btn sm ghost" id="updLater">这个版本先不提醒</button>
+    <a class="btn sm primary" href="${esc(up.url)}" target="_blank" rel="noopener">去下载 →</a></div>`;
+}
+document.addEventListener("click", (e) => {
+  if (e.target.closest("#updLater")) { lsSet(UPD_KEY, STATE.update?.latest || ""); $("#updBanner")?.remove(); }
+});
+
 function bannerHtml() {
   const dep = depsBanner(); if (dep) return dep;
+  const upd = updateBanner(); if (upd) return upd;
   const s = STATE.settings;
   if (!s.api_key_set) return `<div class="banner info"><div><b>还没配置 AI。</b> 没有它只能把视频转成文字，生成不了学习笔记。
     用「免费方案」两分钟就能配好，不花钱。</div><span class="spacer"></span><a class="btn sm primary" href="#/settings">去配置 →</a></div>`;
@@ -870,6 +895,14 @@ async function renderSettings() {
         ${[["auto", "自动（先找 Edge，再找 Chrome）"], ["msedge", "Microsoft Edge"], ["chrome", "Google Chrome"], ["chromium", "内置 Chromium（需单独安装）"]]
           .map(([k, l]) => `<option value="${k}" ${s.browser === k ? "selected" : ""}>${l}</option>`).join("")}</select></div>
     </div>
+    <div class="card form" style="margin-bottom:16px" id="updateCard">
+      <h2>版本与更新</h2>
+      <div id="updInfo">${updateInfoHtml(STATE.update || {})}</div>
+      <div class="row" style="gap:12px">
+        <label class="check"><input type="checkbox" id="checkUpd" ${s.check_update !== false ? "checked" : ""}> 自动检查新版本（只向 GitHub 问最新版本号，不上传任何内容）</label>
+        <span class="spacer"></span><button class="btn" id="updCheck">现在检查</button>
+      </div>
+    </div>
     <div class="row"><span class="spacer"></span>${s.api_key_set ? `<button class="btn ghost" id="clearKey">清除已保存的 Key</button>` : ""}<button class="btn primary" id="saveBtn">保存设置</button></div>`;
 
   const showKeyLink = () => {
@@ -936,6 +969,13 @@ async function renderSettings() {
   initPick("main", "modelPick", "model", "mHint", "provider");
   initPick("deep", "dModelPick", "dModel", "dmHint", "dProvider");
   setupBackup();
+  $("#updCheck").onclick = async () => {
+    const b = $("#updCheck"); b.disabled = true; b.textContent = "检查中…";
+    try { STATE.update = await api("/api/update/check", {}); $("#updInfo").innerHTML = updateInfoHtml(STATE.update); }
+    catch (e) { toast(e.message); }
+    b.disabled = false; b.textContent = "现在检查";
+  };
+  if (location.hash === "#/settings/update") $("#updateCard").scrollIntoView({ block: "start" });
   setupFreePlan();
   $("#openLib").onclick = () => api("/api/open", { what: "library" }).catch((e) => toast(e.message));
   $("#clearKey") && ($("#clearKey").onclick = async () => { if (confirm("清除已保存的 API Key？")) { await api("/api/settings", { clear_key: true }); toast("已清除"); renderSettings(); } });
@@ -948,9 +988,21 @@ async function renderSettings() {
       focus_topic: $("#focus").value.trim(), only_relevant: $("#onlyRel").checked, categories: $("#cats").value,
       whisper_model: $("#wm").value, asr_engine: $("#engine").value, use_subtitles: $("#useSubs").checked, max_minutes: +$("#maxMin").value, use_hf_mirror: $("#mirror").checked,
       keep_video: $("#keepVideo").checked, library_dir: $("#libDir").value.trim(), browser: $("#browser").value,
+      check_update: $("#checkUpd").checked,
     });
     toast("已保存"); renderSettings();
   };
+}
+
+function updateInfoHtml(up) {
+  const when = up.checked_at ? new Date(up.checked_at * 1000).toLocaleString("zh-CN", { hour12: false }) : "";
+  if (up.newer) return `<div class="banner info" style="margin:0 0 10px"><div><b>有新版本 v${esc(up.latest)}</b>（你在用 v${esc(up.current)}）
+    ${up.notes ? `<div class="small" style="margin-top:4px;white-space:pre-line">${esc(up.notes)}</div>` : ""}
+    <div class="small" style="margin-top:4px">${esc(upgradeHint(up))}</div></div><span class="spacer"></span>
+    <a class="btn sm primary" href="${esc(up.url)}" target="_blank" rel="noopener">去下载 →</a></div>`;
+  if (up.latest) return `<p class="muted" style="margin:0 0 10px">当前 v${esc(up.current)}，已经是最新版本${when ? `（${esc(when)} 检查）` : ""}。</p>`;
+  if (up.error) return `<p class="muted" style="margin:0 0 10px">当前 v${esc(up.current)}。上次没连上 GitHub，过一会儿会自动再试；也可以直接去 <a class="link" href="${esc(up.url)}" target="_blank" rel="noopener">GitHub Releases</a> 看。</p>`;
+  return `<p class="muted" style="margin:0 0 10px">当前 v${esc(up.current)}。</p>`;
 }
 
 /* ---------------------------------------------------------------- 启动 */
@@ -1156,7 +1208,7 @@ function fixHint(msg) {
       : "先配好 AI：「开始使用」第 1 步，或「设置 → 免费方案」，两分钟就好。"],
     [/截断|太长/, "内容太长了。在「设置 → 精读」把「分段预读」的字数调小，比如 8000，再试一次。"],
     [/没登录|需要先登录|登录抖音|还没登录/, "抖音登录过期了。到「添加与处理」点「只登录抖音」，用手机抖音 App 扫弹出窗口里的二维码。"],
-    [/没读到「(收藏|喜欢)」列表/, "抖音网页改版或者弹了验证时，同步会暂时读不到。先看一眼弹出的浏览器窗口；还不行就用「粘贴分享链接」，效果一样。"],
+    [/没读到「(收藏|喜欢)」列表/, "抖音网页改版或者弹了验证时，同步会暂时读不到。先看一眼弹出的浏览器窗口；还不行就用「粘贴分享链接」，效果一样。也可以到「设置 → 版本与更新」看看有没有修好的新版本。"],
     [/验证/, "抖音弹了验证（比如拖滑块）。看一眼弹出的浏览器窗口，手动完成验证，然后点「重试」。"],
     [/删除|私密/, "这条可能被作者删了或设成私密。能在手机上看到的话，保存视频后用「导入本地视频」。"],
     [/找不到可用的浏览器/, "电脑上需要有 Edge 或 Chrome。装一个，再点一次同步。"],

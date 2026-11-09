@@ -236,7 +236,7 @@ details summary { cursor: pointer; color: var(--link); }
 .qrow .t a { color: inherit; }
 .qrow .r { font-size: 13px; color: var(--ink-3); margin-top: 2px; }
 .logs { font: 12.5px/1.75 var(--mono); max-height: 280px; overflow: auto; background: var(--card); border-radius: var(--r-card);
-  padding: 14px 18px; color: var(--ink-2); }
+  padding: 14px 18px; color: var(--ink-2); white-space: pre-line; }
 .logs div span { color: var(--ink-4); margin-right: 10px; }
 
 /* ---------------------------------------------------------------- 弹窗与提示 */
