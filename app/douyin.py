@@ -273,7 +273,7 @@ class Browser:
         hits = []
 
         def on_resp(r):
-            if "/aweme/v1/web/aweme/detail" in r.url:
+            if "douyin.com" in r.url and "/aweme/" in r.url and "/detail" in r.url:
                 hits.append(r)
 
         self.page.on("response", on_resp)
@@ -332,7 +332,8 @@ class Browser:
         if not self.logged_in():
             raise NotLoggedIn("没读到视频信息，可能需要先登录抖音")
         raise DouyinError("没读到视频信息。可能视频已删除/私密，或者抖音弹了验证码——"
-                          "请看一眼弹出的浏览器窗口，完成验证后点「重试」")
+                          "请看一眼弹出的浏览器窗口，完成验证后点「重试」。"
+                          "如果很多条都这样，可能是抖音改版了，到「设置 → 版本与更新」看看有没有新版本")
 
     # ---- 字幕
     def fetch_text(self, url) -> str:
@@ -399,14 +400,16 @@ class Browser:
     def sync_list(self, kind="collection", limit=50, on_item=lambda d: None, should_stop=lambda: False):
         """kind = collection（收藏）或 like（喜欢）。返回读到的条数。"""
         self.ensure_login(should_stop=should_stop)
+        # 抖音网页版会自己去请求列表数据，这里在旁边「听」这些请求。
+        # 只认接口路径里的关键词，不死认完整路径：抖音把 v1 换成 v2、换个前缀，也还能读到。
         if kind == "like":
             tab_url, tab_text = "https://www.douyin.com/user/self?showTab=like", "喜欢"
-            match = lambda u: "/aweme/v1/web/aweme/favorite" in u
+            match = lambda u: "douyin.com" in u and "/aweme/" in u and "favorite" in u
         else:
             tab_url = ("https://www.douyin.com/user/self?from_tab_name=main"
                        "&showSubTab=video&showTab=favorite_collection")
             tab_text = "收藏"
-            match = lambda u: "/aweme/v1/web/" in u and "collect" in u
+            match = lambda u: "douyin.com" in u and "/aweme/" in u and "collect" in u
         hits = []
 
         def on_resp(r):
@@ -452,9 +455,68 @@ class Browser:
                     self.page.mouse.wheel(0, random.randint(1800, 2800))
                 except Exception:
                     pass
+            if not seen and not should_stop():
+                # 备用方式：接口没读到（多半是抖音改版了），直接从网页上读视频卡片的链接，
+                # 之后每一条再按「粘贴链接」的方式单独读取详情
+                self.log(f"没从抖音的接口读到「{tab_text}」列表，换备用方式：直接从网页上读视频链接……")
+                self._sync_from_page(tab_text, limit, seen, on_item, should_stop)
+                if seen:
+                    self.log(f"备用方式读到 {len(seen)} 条。抖音可能改版了，如果之后一直要用备用方式，"
+                             "到「设置 → 版本与更新」看看有没有新版本。")
             if not seen:
-                raise DouyinError(f"没读到「{tab_text}」列表。请看一眼浏览器窗口：是否需要验证，"
-                                  f"或者{tab_text}列表是否为空。")
+                raise DouyinError(f"没读到「{tab_text}」列表（接口和网页备用方式都没读到）。"
+                                  f"如果{tab_text}列表不是空的，多半是弹了验证或者抖音改版了")
             return len(seen)
         finally:
             self.page.remove_listener("response", on_resp)
+
+    _PAGE_LINKS_JS = r"""() => {
+        // 找出页面上指向视频 / 图文的链接，按所在的列表分组，取最大的那一组（就是收藏列表本身，
+        // 避免把侧边栏、推荐位里的视频也算进来）
+        const groups = new Map();
+        for (const a of document.querySelectorAll('a[href*="/video/"], a[href*="/note/"]')) {
+            const m = (a.href || '').match(/\/(video|note)\/(\d{8,})/);
+            if (!m) continue;
+            const box = a.closest('ul') || (a.parentElement && a.parentElement.parentElement) || document.body;
+            if (!groups.has(box)) groups.set(box, []);
+            const img = a.querySelector('img');
+            const text = (a.innerText || a.textContent || '').split('\n').map(s => s.trim()).filter(s => s.length > 4)[0] || '';
+            groups.get(box).push({id: m[2], kind: m[1], title: ((img && img.alt) || a.title || text || '').trim().slice(0, 200),
+                                  cover: (img && (img.currentSrc || img.src)) || ''});
+        }
+        let best = [];
+        for (const g of groups.values()) if (g.length > best.length) best = g;
+        return best;
+    }"""
+
+    def _sync_from_page(self, tab_text, limit, seen, on_item, should_stop):
+        try:
+            self.page.get_by_text(tab_text, exact=True).first.click(timeout=5000)
+            self.page.wait_for_timeout(2000)
+        except Exception:
+            pass
+        idle = 0
+        while len(seen) < limit and idle < 4 and not should_stop():
+            try:
+                found = self.page.evaluate(self._PAGE_LINKS_JS) or []
+            except Exception:
+                found = []
+            new = 0
+            for f in found:
+                vid = str(f.get("id") or "")
+                if not vid or vid in seen or len(seen) >= limit:
+                    continue
+                seen.add(vid)
+                new += 1
+                is_note = f.get("kind") == "note"
+                cover = _https(f.get("cover") or "")
+                on_item({"aweme_id": vid, "title": f.get("title") or f"抖音{'图文' if is_note else '视频'} {vid}",
+                         "author": "", "duration": 0, "cover": cover if cover.startswith("http") else None,
+                         "is_note": is_note, "url": f"https://www.douyin.com/{'note' if is_note else 'video'}/{vid}"})
+            idle = 0 if new else idle + 1
+            try:
+                self.page.mouse.move(640, 560)
+                self.page.mouse.wheel(0, random.randint(1800, 2800))
+            except Exception:
+                pass
+            self.page.wait_for_timeout(random.randint(1500, 2500))
