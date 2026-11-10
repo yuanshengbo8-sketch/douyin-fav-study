@@ -279,15 +279,11 @@ class InsightRunner:
         if not (cfg.get("api_key") or "").strip():
             raise llm.LLMError("还没填 AI Key（设置 → 精读）")
         self.log(f"开始整理「{cat}」的共识观点（{len(items)} 条笔记，{cfg['model']}）")
-        text, used = llm.chat(cfg, [
+        d, used = llm.chat_json(cfg, [
             {"role": "system", "content": SYSTEM},
             {"role": "user", "content": f"分类：{cat}\n\n{build_input(items)}"},
         ], json_mode=True, temperature=0.3, max_tokens=6000, timeout=300)
         config.add_tokens(used)
-        try:
-            d = llm.parse_json(text)
-        except Exception:
-            raise llm.LLMError("AI 返回的不是有效的 JSON：" + (text or "")[:200])
         data = normalize(d, {it["id"] for it in items})
 
         folder = config.library_dir() / INSIGHT_DIR

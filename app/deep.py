@@ -325,13 +325,10 @@ class DeepRunner:
 
     def _call(self, cfg, messages, max_tokens):
         t0 = time.time()
-        text, used = llm.chat(cfg, messages, json_mode=True, temperature=0.3, max_tokens=max_tokens, timeout=300)
+        d, used = llm.chat_json(cfg, messages, json_mode=True, temperature=0.3, max_tokens=max_tokens, timeout=300)
         config.add_tokens(used)
         progress.learn("deep_call", time.time() - t0)
-        try:
-            return llm.parse_json(text)
-        except Exception:
-            raise llm.LLMError("AI 返回的不是有效的 JSON：" + (text or "")[:200])
+        return d
 
     def _deep(self, item_id):
         it = db.get(item_id)
