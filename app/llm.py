@@ -189,6 +189,44 @@ def parse_json(text: str) -> dict:
         raise
 
 
+def _folded(messages):
+    """把 system 消息里的任务和格式要求并进第一条 user 消息。
+
+    有的 OpenAI 兼容网关不把 system 消息交给模型，模型只看到材料，就会回一句普通的话。
+    """
+    system = "\n\n".join(m["content"] for m in messages if m["role"] == "system")
+    rest = [dict(m) for m in messages if m["role"] != "system"]
+    if not system:
+        return None
+    for m in rest:
+        if m["role"] == "user":
+            m["content"] = system + "\n\n" + m["content"]
+            return rest
+    return [{"role": "user", "content": system}] + rest
+
+
+def chat_json(cfg, messages, **kw):
+    """调用 AI 并把回复解析成 JSON，返回 (dict, 消耗的 token 数)。
+
+    回复不是 JSON 时，把 system 里的要求并进 user 消息再试一次；还不行才报错。
+    本来就能返回 JSON 的接口只请求一次。
+    """
+    text, used = chat(cfg, messages, **kw)
+    try:
+        return parse_json(text), used
+    except Exception:
+        pass
+    retry = _folded(messages)
+    if retry:
+        text, more = chat(cfg, retry, **kw)
+        used += more
+        try:
+            return parse_json(text), used
+        except Exception:
+            pass
+    raise LLMError("AI 返回的不是有效的 JSON：" + (text or "")[:200])
+
+
 def _str_list(v):
     if isinstance(v, str):
         v = [v]
@@ -242,11 +280,7 @@ def extract(settings, title, author, transcript, kind="video"):
             label="图文笔记的正文和图片文字（【图N】是第 N 张图里识别出的文字）" if kind == "note" else "语音转文字稿",
             transcript=(transcript or "")[:MAX_CHARS])},
     ]
-    text, used = chat(settings, messages)
-    try:
-        d = parse_json(text)
-    except Exception:
-        raise LLMError("AI 返回的不是有效的 JSON：" + (text or "")[:200])
+    d, used = chat_json(settings, messages)
     note = normalize(d)
     if not note.get("skip"):
         # AI 有时把「AI 编程」写成「AI编程」，同一个分类就被拆成两个；对上设置里的分类名
